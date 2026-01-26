@@ -16,3 +16,6 @@
 ## 2024-05-23 - Contextual Inputs
 **Learning:** Filtered scans require maintaining state context (e.g., 'isNextScan'). UI elements should adapt (show/hide) based on this context to guide the user workflow.
 **Action:** When implementing multi-step workflows, ensure the UI explicitly reflects the current step.
+## 2024-05-23 - Data Density
+**Learning:** Tools for power users (like memory scanners) benefit from dense, high-information UIs (Chips, Checkboxes) rather than overly simplified forms.
+**Action:** Use Chips and horizontal scrolling for option-dense configurations.

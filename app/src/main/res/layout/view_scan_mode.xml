@@ -21,6 +21,113 @@
             android:textColor="#FFFFFF"/>
     </com.google.android.material.textfield.TextInputLayout>
 
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:scrollbars="none">
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/chip_group_type"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:singleSelection="true"
+            app:selectionRequired="true">
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_type_dword"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Dword"
+                android:checked="true"
+                android:textColor="@color/white"
+                app:chipBackgroundColor="@color/surface_card_grey"/>
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_type_float"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Float"
+                android:textColor="@color/white"
+                app:chipBackgroundColor="@color/surface_card_grey"/>
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_type_double"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Double"
+                android:textColor="@color/white"
+                app:chipBackgroundColor="@color/surface_card_grey"/>
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_type_byte"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Byte"
+                android:textColor="@color/white"
+                app:chipBackgroundColor="@color/surface_card_grey"/>
+
+        </com.google.android.material.chip.ChipGroup>
+    </HorizontalScrollView>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Memory Ranges:"
+        android:textColor="@color/primary_hacker_green"
+        android:textSize="12sp"
+        android:layout_marginTop="8dp"/>
+
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <CheckBox
+                android:id="@+id/cb_region_anon"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Anon"
+                android:textColor="#FFFFFF"
+                android:checked="true"
+                android:buttonTint="@color/primary_hacker_green"/>
+
+            <CheckBox
+                android:id="@+id/cb_region_c_heap"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="C++ Heap"
+                android:textColor="#FFFFFF"
+                android:checked="true"
+                android:buttonTint="@color/primary_hacker_green"/>
+
+            <CheckBox
+                android:id="@+id/cb_region_java_heap"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Java Heap"
+                android:textColor="#FFFFFF"
+                android:buttonTint="@color/primary_hacker_green"/>
+
+            <CheckBox
+                android:id="@+id/cb_region_stack"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Stack"
+                android:textColor="#FFFFFF"
+                android:buttonTint="@color/primary_hacker_green"/>
+        </LinearLayout>
+    </HorizontalScrollView>
+
     <Button
         android:id="@+id/btn_scan"
         android:layout_width="match_parent"

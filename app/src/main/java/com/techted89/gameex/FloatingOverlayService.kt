@@ -154,6 +154,13 @@ class FloatingOverlayService : Service() {
         val btnNextScan = viewScan.findViewById<Button>(R.id.btn_next_scan)
         val etSearchValue = viewScan.findViewById<EditText>(R.id.et_search_value)
         val progressScan = viewScan.findViewById<View>(R.id.progress_scan)
+        val chipGroupType = viewScan.findViewById<com.google.android.material.chip.ChipGroup>(R.id.chip_group_type)
+
+        // Speed Hack
+        val toggleSpeed = dashboardView.findViewById<android.widget.ToggleButton>(R.id.toggle_speed)
+        toggleSpeed.setOnCheckedChangeListener { _, isChecked ->
+            Toast.makeText(this, "Speed Hack: ${if (isChecked) "ON" else "OFF"}", Toast.LENGTH_SHORT).show()
+        }
 
         // Results Mode Elements
         val rvResults = viewResults.findViewById<RecyclerView>(R.id.rv_results)
@@ -228,6 +235,16 @@ class FloatingOverlayService : Service() {
                 return
             }
 
+            // Get selected type (Mock logic)
+            val selectedType = when (chipGroupType.checkedChipId) {
+                R.id.chip_type_float -> "Float"
+                R.id.chip_type_double -> "Double"
+                R.id.chip_type_byte -> "Byte"
+                else -> "Dword"
+            }
+
+            Toast.makeText(this, "Scanning $selectedType...", Toast.LENGTH_SHORT).show()
+
             // Show Loading
             progressScan.visibility = View.VISIBLE
             btnScan.isEnabled = false
@@ -265,15 +282,18 @@ class FloatingOverlayService : Service() {
                 if (mockResults.isEmpty()) {
                     layoutEmptyState.visibility = View.VISIBLE
                     rvResults.visibility = View.GONE
+                    btnNextScan.visibility = View.GONE
                 } else {
                     layoutEmptyState.visibility = View.GONE
                     rvResults.visibility = View.VISIBLE
+                    btnNextScan.visibility = View.VISIBLE
                 }
             }
         }
 
         btnScan.setOnClickListener {
-            performScan()
+            btnNextScan.visibility = View.GONE
+            performScan(isNext = false)
         }
 
         btnNextScan.setOnClickListener {

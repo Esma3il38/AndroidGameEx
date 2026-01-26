@@ -82,6 +82,14 @@ object GameGuardianAPI {
         return SystemUtils.getTargetPackage(0)
     }
 
+    fun searchPointer(maxOffset: Int, memoryFrom: Long = 0, memoryTo: Long = -1, limit: Long = 0) {
+        // NativeScanner.searchPointer(...)
+    }
+
+    fun setSpeed(speed: Double): Boolean {
+        return NativeScanner.setSpeed(speed)
+    }
+
     fun clearResults() {
         // Clear global results
     }

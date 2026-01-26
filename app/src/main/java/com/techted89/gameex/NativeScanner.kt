@@ -76,6 +76,21 @@ external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
     external fun dumpMemory(pid: Int, from: Long, to: Long, path: String): Boolean
 
     /**
+     * Installs a hook at the target address.
+     */
+    external fun installHook(targetAddress: Long, replacementAddress: Long): Boolean
+
+    /**
+     * Removes a previously installed hook.
+     */
+    external fun removeHook(targetAddress: Long): Boolean
+
+    /**
+     * Sets the speed multiplier for the speedhack engine.
+     */
+    external fun setSpeed(speed: Double): Boolean
+
+    /**
  * Retrieves up to the specified number of addresses discovered by the native scanner.
  *
  * @param limit Maximum number of addresses to return.

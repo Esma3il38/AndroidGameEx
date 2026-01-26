@@ -181,6 +181,40 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
 }
 
 extern "C" /**
+ * @brief Install a hook at the target address (Stub).
+ *
+ * In a real implementation, this would:
+ * 1. Read original instructions.
+ * 2. Write a jump/trampoline to the replacement address.
+ * 3. Handle architecture specifics (ARM/ARM64).
+ */
+JNIEXPORT jboolean JNICALL
+Java_com_techted89_gameex_NativeScanner_installHook(
+        JNIEnv* env,
+        jobject,
+        jlong targetAddress,
+        jlong replacementAddress) {
+
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "InstallHook: %" PRIx64 " -> %" PRIx64, (uint64_t)targetAddress, (uint64_t)replacementAddress);
+    // Stub: Simulate success
+    return JNI_TRUE;
+}
+
+extern "C" /**
+ * @brief Remove a previously installed hook (Stub).
+ */
+JNIEXPORT jboolean JNICALL
+Java_com_techted89_gameex_NativeScanner_removeHook(
+        JNIEnv* env,
+        jobject,
+        jlong targetAddress) {
+
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "RemoveHook: %" PRIx64, (uint64_t)targetAddress);
+    // Stub: Simulate success
+    return JNI_TRUE;
+}
+
+extern "C" /**
  * @brief Dump memory regions to files on disk.
  *
  * @param pid Target process ID.

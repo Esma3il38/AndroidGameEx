@@ -37,3 +37,6 @@
 ## 2024-05-23 - Native to Script Bridge
 **Learning:** Bridging native C++ memory functions to a high-level scripting API requires a robust Kotlin/Java middleware that handles context (Context/Activity) management.
 **Action:** Use WeakReferences for context in singleton API objects to prevent leaks.
+## 2024-05-23 - Engine Modularity
+**Learning:** Breaking down the native engine into specialized modules (memory_scanner, lua_disassembler, speedhack) prevents monolithic C++ files and simplifies CMake configuration.
+**Action:** Always separate distinct engine features into their own translation units.

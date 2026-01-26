@@ -43,13 +43,36 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
         char dev[10]; // Major:Minor
         long inode;
         char path[256] = {0}; // Optional path
+        int pos = 0;
 
         // Parse line: 7b3d8000-7b3da000 rw-p 00000000 00:00 0 ...
-        // Using sscanf is fast and efficient for this standard format
-        // Check return value to ensure correct parsing
-        if (sscanf(line.c_str(), "%" SCNxPTR "-%" SCNxPTR " %4s %*s %s %ld %s",
-               &region.startAddress, &region.endAddress, permissions, dev, &inode, path) != 6) {
+        // We use %n to see where the fixed fields end, then manually grab the path.
+        // Format: start-end perms offset dev inode
+        int parsed = sscanf(line.c_str(), "%" SCNxPTR "-%" SCNxPTR " %4s %*s %9s %ld%n",
+               &region.startAddress, &region.endAddress, permissions, dev, &inode, &pos);
+
+        if (parsed < 5) {
             continue;
+        }
+
+        // Extract path if present
+        if (pos > 0 && (size_t)pos < line.length()) {
+            const char* p = line.c_str() + pos;
+            // Skip leading whitespace
+            while (*p == ' ' || *p == '\t') {
+                p++;
+            }
+            // Copy to path buffer
+            strncpy(path, p, sizeof(path) - 1);
+            path[sizeof(path) - 1] = '\0'; // Ensure null-termination
+
+            // Remove trailing newline if present (getline usually handles this, but just in case of oddities)
+            size_t len = strlen(path);
+            if (len > 0 && path[len-1] == '\n') {
+                path[len-1] = '\0';
+            }
+        } else {
+            path[0] = '\0';
         }
 
         region.isReadable = (permissions[0] == 'r');
@@ -164,6 +187,12 @@ Java_com_techted89_gameex_NativeScanner_readMemory(
         jint pid,
         jlong address,
         jint size) {
+
+    // Validate size: must be positive and not too huge (e.g., limit to 1MB)
+    // This prevents massive allocation attempts and invalid inputs.
+    if (size <= 0 || size > 1024 * 1024) {
+        return env->NewByteArray(0);
+    }
 
     std::vector<uint8_t> buffer(size);
     struct iovec local_iov = {buffer.data(), (size_t)size};

@@ -130,8 +130,12 @@ Java_com_techted89_gameex_NativeScanner_getResults(
         jobject /* this */,
         jint limit) {
 
-    int count = (searchResults.size() > limit) ? limit : searchResults.size();
-
+    int count = 0;
+    if (limit > 0) {
+        count = (searchResults.size() > static_cast<size_t>(limit))
+            ? limit
+            : static_cast<int>(searchResults.size());
+    }
     jlongArray resultArr = env->NewLongArray(count);
     env->SetLongArrayRegion(resultArr, 0, count, (jlong*)searchResults.data());
 

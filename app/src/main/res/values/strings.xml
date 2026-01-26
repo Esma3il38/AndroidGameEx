@@ -1,3 +1,6 @@
 <resources>
     <string name="app_name">AndroidGameEx</string>
+    <string name="cd_minimize_overlay">Minimize overlay</string>
+    <string name="hint_search_value">Value to Search</string>
+    <string name="helper_search_value">Enter an exact integer value</string>
 </resources>

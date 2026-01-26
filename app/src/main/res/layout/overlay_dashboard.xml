@@ -31,19 +31,23 @@
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:background="@android:drawable/ic_menu_close_clear_cancel"
-                android:backgroundTint="#FFFFFF"/>
+                android:backgroundTint="#FFFFFF"
+                android:contentDescription="@string/cd_minimize_overlay"/>
         </LinearLayout>
 
         <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:hint="Value to Search">
+            android:hint="@string/hint_search_value"
+            app:helperText="@string/helper_search_value"
+            app:endIconMode="clear_text">
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/et_search_value"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:inputType="numberSigned"
+                android:imeOptions="actionSearch"
                 android:textColor="#FFFFFF"/>
         </com.google.android.material.textfield.TextInputLayout>
 

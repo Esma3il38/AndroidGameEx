@@ -40,3 +40,9 @@
 ## 2024-05-23 - Engine Modularity
 **Learning:** Breaking down the native engine into specialized modules (memory_scanner, lua_disassembler, speedhack) prevents monolithic C++ files and simplifies CMake configuration.
 **Action:** Always separate distinct engine features into their own translation units.
+## 2024-05-23 - Transitioning from Mocks
+**Learning:** Transitioning from UI mocks to real Native calls requires robust error handling (Try/Catch) in the Service layer, as JNI faults can crash the whole app.
+**Action:** Always wrap JNI calls in a  block or  when triggered from UI events.
+## 2024-05-23 - Transitioning from Mocks
+**Learning:** Transitioning from UI mocks to real Native calls requires robust error handling in the Service layer.
+**Action:** Always wrap JNI calls in a safe block when triggered from UI events.

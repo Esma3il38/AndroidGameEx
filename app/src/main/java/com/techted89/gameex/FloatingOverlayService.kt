@@ -299,43 +299,56 @@ class FloatingOverlayService : Service() {
             btnScan.isEnabled = false
             btnNextScan.isEnabled = false
 
-            // Simulate Async Scan
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
-                kotlinx.coroutines.delay(1000) // Mock scan delay
-
-                val mockResults = if (valueStr == "0") {
-                    emptyList()
-                } else {
-                    // Logic: If next scan, return filtered mock results
+            // Execute Real Async Scan
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                val results = try {
                     if (isNext) {
-                         listOf(MemoryResult(0x12345678, valueStr))
+                        // For Next Scan, we filter existing results using the integer value (stub limitation fix later)
+                        // Note: Native filter currently accepts Int. Advanced filter needs new native method.
+                        // We use best-effort integer parsing for now.
+                        val intVal = valueStr.toIntOrNull() ?: 0
+                        NativeScanner.filterMemory(targetPid, intVal)
                     } else {
-                        listOf(
-                            MemoryResult(0x12345678, valueStr),
-                            MemoryResult(0xABCDEF00, valueStr),
-                            MemoryResult(0x88776655, valueStr)
-                        )
+                        // New Scan using complex query string (Range, XOR, etc)
+                        NativeScanner.searchMemoryString(targetPid, valueStr)
                     }
+
+                    // Fetch up to 100 results addresses
+                    val addresses = NativeScanner.getResults(100)
+
+                    // Map addresses to displayable MemoryResult objects
+                    // We read the current value from memory to verify validity
+                    addresses.map { addr ->
+                        // Read 4 bytes (DWORD default)
+                        val bytes = NativeScanner.readMemory(targetPid, addr, 4)
+                        // Simple Hex conversion for display
+                        val hexVal = bytes.joinToString("") { "%02X".format(it) }
+                        MemoryResult(addr, "$hexVal ($valueStr)")
+                    }
+                } catch (e: Exception) {
+                    emptyList()
                 }
 
-                adapter.updateData(mockResults)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    adapter.updateData(results)
 
-                // Update UI based on results
-                progressScan.visibility = View.GONE
-                btnScan.isEnabled = true
-                btnNextScan.isEnabled = true
+                    // Update UI based on results
+                    progressScan.visibility = View.GONE
+                    btnScan.isEnabled = true
+                    btnNextScan.isEnabled = true
 
-                // Switch to results tab automatically
-                switchTab("RESULTS")
+                    // Switch to results tab automatically
+                    switchTab("RESULTS")
 
-                if (mockResults.isEmpty()) {
-                    layoutEmptyState.visibility = View.VISIBLE
-                    rvResults.visibility = View.GONE
-                    btnNextScan.visibility = View.GONE
-                } else {
-                    layoutEmptyState.visibility = View.GONE
-                    rvResults.visibility = View.VISIBLE
-                    btnNextScan.visibility = View.VISIBLE
+                    if (results.isEmpty()) {
+                        layoutEmptyState.visibility = View.VISIBLE
+                        rvResults.visibility = View.GONE
+                        btnNextScan.visibility = View.GONE
+                    } else {
+                        layoutEmptyState.visibility = View.GONE
+                        rvResults.visibility = View.VISIBLE
+                        btnNextScan.visibility = View.VISIBLE
+                    }
                 }
             }
         }

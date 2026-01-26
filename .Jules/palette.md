@@ -31,3 +31,6 @@
 ## 2024-05-23 - Scripting Tools
 **Learning:** Providing developer tools (assembler/disassembler) within the overlay empowers advanced users to modify game logic on-the-fly without external PC tools.
 **Action:** Expose internal toolchains (like Lua bytecode parsers) to the user interface.
+## 2024-05-23 - API Documentation & Stubs
+**Learning:** Saving external documentation (GG Reference) and mirroring it in code (API stubs) significantly speeds up future scripting integration.
+**Action:** When implementing an emulation layer, always create a comprehensive API stub class first.

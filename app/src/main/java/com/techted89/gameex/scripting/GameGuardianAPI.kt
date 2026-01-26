@@ -2,8 +2,24 @@ package com.techted89.gameex.scripting
 
 import com.techted89.gameex.NativeScanner
 import com.techted89.gameex.MemoryResult
+import com.techted89.gameex.utils.ProcessUtils
 
 object GameGuardianAPI {
+
+    // Constants
+    const val TYPE_AUTO = 127
+    const val TYPE_BYTE = 1
+    const val TYPE_WORD = 2
+    const val TYPE_DWORD = 4
+    const val TYPE_XOR = 8
+    const val TYPE_FLOAT = 16
+    const val TYPE_QWORD = 32
+    const val TYPE_DOUBLE = 64
+
+    const val SIGN_EQUAL = 0
+    const val SIGN_NOT_EQUAL = 1
+    const val SIGN_LESS_OR_EQUAL = 2
+    const val SIGN_GREATER_OR_EQUAL = 3
 
     /**
      * Searches for a value with the specified type and flags.
@@ -37,6 +53,45 @@ object GameGuardianAPI {
      */
     fun editAll(text: String, type: Int) {
         // NativeScanner.writeMemoryLoop(...)
+    }
+
+    fun clearResults() {
+        // Clear global results
+    }
+
+    fun toast(text: String, fast: Boolean = false) {
+        // Callback to UI needed
+    }
+
+    fun alert(text: String, positive: String = "ok", negative: String? = null, neutral: String? = null): Int {
+        // Blocking dialog logic stub
+        return 1
+    }
+
+    fun sleep(milliseconds: Int) {
+        try {
+            Thread.sleep(milliseconds.toLong())
+        } catch (e: InterruptedException) {
+            e.printStackTrace()
+        }
+    }
+
+    fun isVisible(): Boolean {
+        return true // Mock state
+    }
+
+    fun setVisible(visible: Boolean) {
+        // UI toggle callback needed
+    }
+
+    fun processPause(): Boolean {
+        // Assuming pid 0 refers to selected target in this context
+        // In reality, need active PID injection
+        return true
+    }
+
+    fun processResume(): Boolean {
+        return true
     }
 
     /**

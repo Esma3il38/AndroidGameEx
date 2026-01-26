@@ -1,0 +1,98 @@
+gg Class Reference
+
+Table gg provides access to the GameGuardian functions.
+
+Public Member Functions
+mixed allocatePage (int mode=gg.PROT_READ|gg.PROT_EXEC, long address=0)
+    Allocated memory page (4 KB) in the target process.
+string bytes (string text, string encoding='UTF-8')
+    Gets the text bytes in the specified encoding.
+mixed copyMemory (long from, long to, int bytes)
+    Copy memory.
+nil copyText (string text, bool fixLocale=true)
+    Copy text to the clipboard.
+string disasm (int type, long address, int opcode)
+    Disassemble the specified value.
+mixed dumpMemory (long from, long to, string dir, int flags=nil)
+    Dump memory to files on disk.
+table getRangesList (string filter='')
+    Get the list of memory regions of the selected process.
+mixed getTargetInfo ()
+    Get a table with information about the selected process if possible.
+mixed getTargetPackage ()
+    Get the package name of the selected process, if possible.
+bool isPackageInstalled (string pkg)
+    Check whether the specified application is installed on the system by the package name.
+mixed makeRequest (string url, table headers={}, string data=nil)
+    Performs a GET or POST request over HTTP or HTTPS.
+bool processKill ()
+    Force kill the selected process.
+nil require (string version=nil, int build=0)
+    Checks the version of GameGuardian.
+mixed saveVariable (mixed variable, string filename)
+    Saves the variable to a file.
+nil skipRestoreState ()
+    Do not restore the state of the GameGuardian, after the script is completed.
+nil sleep (int milliseconds)
+    Causes the currently executing script to sleep.
+mixed unrandomizer (long qword=nil, long qincr=nil, double double_=nil, double dincr=nil)
+    Work with Unrandomizer.
+
+Dialogs and toasts
+nil toast (string text, bool fast=false)
+    Show the toast.
+int alert (string text, string positive='ok', string negative=nil, string neutral=nil)
+    Displays a dialog with several buttons.
+mixed prompt (table prompts, table defaults={}, table types={})
+    Displays the dialog for data entry.
+mixed choice (table items, string selected=nil, string message=nil)
+    Displays the selection dialog from the list.
+mixed multiChoice (table items, table selection={}, string message=nil)
+    Displays the multiple choice dialog.
+
+GameGuardian UI related methods
+bool isVisible ()
+    Check if the GameGuardian UI is open.
+nil setVisible (bool visible)
+    Open or close the GameGuardian UI.
+int getActiveTab ()
+    Get active tab in the GameGuardian UI.
+
+Search related methods
+mixed searchNumber (string text, int type=gg.TYPE_AUTO, bool encrypted=false, int sign=gg.SIGN_EQUAL, long memoryFrom=0, long memoryTo=-1, long limit=0)
+    Perform a search for a number.
+mixed refineNumber (string text, int type=gg.TYPE_AUTO, bool encrypted=false, int sign=gg.SIGN_EQUAL, long memoryFrom=0, long memoryTo=-1, long limit=0)
+    Perform a refine search for a number.
+mixed startFuzzy (int type=gg.TYPE_AUTO, long memoryFrom=0, long memoryTo=-1, long limit=0)
+    Start a fuzzy search.
+mixed searchFuzzy (string difference='0', int sign=gg.SIGN_FUZZY_EQUAL, int type=gg.TYPE_AUTO, long memoryFrom=0, long memoryTo=-1, long limit=0)
+    Refine fuzzy search.
+mixed searchAddress (string text, long mask=-1, int type=gg.TYPE_AUTO, int sign=gg.SIGN_EQUAL, long memoryFrom=0, long memoryTo=-1, long limit=0)
+    Perform an address search.
+mixed refineAddress (string text, long mask=-1, int type=gg.TYPE_AUTO, int sign=gg.SIGN_EQUAL, long memoryFrom=0, long memoryTo=-1, long limit=0)
+    Perform an address refine search.
+mixed searchPointer (int maxOffset, long memoryFrom=0, long memoryTo=-1, long limit=0)
+    Searches for values that may be pointers.
+
+Results related methods
+long getResultsCount ()
+    Get the number of found results.
+mixed getResults (int maxCount, int skip=0, long addressMin=nil, long addressMax=nil, string valueMin=nil, string valueMax=nil, int type=nil, string fractional=nil, int pointer=nil)
+    Load results into results list and return its as a table.
+mixed editAll (string value, int type)
+    Edit all search results.
+nil clearResults ()
+    Clear the list of search results.
+mixed removeResults (table results)
+    Remove results from the list of results found.
+mixed loadResults (table results)
+    Loads the search results from the table.
+mixed getSelectedResults ()
+    Returns the selected items in the search results.
+
+Constants
+TYPE_AUTO, TYPE_BYTE, TYPE_WORD, TYPE_DWORD, TYPE_XOR, TYPE_FLOAT, TYPE_QWORD, TYPE_DOUBLE
+SIGN_EQUAL, SIGN_NOT_EQUAL, SIGN_LESS_OR_EQUAL, SIGN_GREATER_OR_EQUAL
+SIGN_FUZZY_EQUAL, SIGN_FUZZY_NOT_EQUAL, SIGN_FUZZY_LESS, SIGN_FUZZY_GREATER
+REGION_JAVA_HEAP, REGION_C_HEAP, REGION_C_ALLOC, REGION_C_DATA, REGION_C_BSS, REGION_PPSSPP, REGION_ANONYMOUS, REGION_JAVA, REGION_STACK, REGION_ASHMEM, REGION_VIDEO, REGION_OTHER, REGION_BAD, REGION_CODE_APP, REGION_CODE_SYS
+POINTER_NO, POINTER_READ_ONLY, POINTER_WRITABLE, POINTER_EXECUTABLE, POINTER_EXECUTABLE_WRITABLE

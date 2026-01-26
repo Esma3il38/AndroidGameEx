@@ -38,6 +38,7 @@ static bool shouldFilterPath(const std::string& path) {
     if (path.find("/dev/") != std::string::npos) return true;
     if (path.find(".so") != std::string::npos) return true;
     if (path.find(".ttf") != std::string::npos) return true;
+    if (path.find("app_process") != std::string::npos) return true;
     return false;
 }
 
@@ -54,7 +55,7 @@ static MemoryRegion parseMemoryMapLine(const std::string& line) {
     char permissions[5];
     char dev[10]; // Major:Minor
     long inode;
-    char path[256] = {0}; // Optional path
+    char path[4096] = {0}; // Optional path, large buffer to avoid truncation
     int pos = 0;
 
     // Parse line: 7b3d8000-7b3da000 rw-p 00000000 00:00 0 ...
@@ -142,6 +143,7 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
     std::vector<uint8_t> buffer(CHUNK_SIZE);
 
     int matchCount = 0;
+    bool searchComplete = false;
 
     // 4. Iterate over every region
     for (const auto& region : regions) {
@@ -161,6 +163,9 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
                 // Scan the buffer (Client-side scan)
                 // We stop at i + 4 <= bytesRead to avoid reading past the buffer end for a 4-byte int
                 size_t limit = (size_t)bytesRead;
+
+                // Optimized for 4-byte aligned searches.
+                // Note: This loop increments by 4, skipping unaligned occurrences.
                 for (size_t i = 0; i + 4 <= limit; i += 4) {
                     // Safe unaligned access using memcpy
                     int val;
@@ -172,15 +177,19 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
                         matchCount++;
 
                         // Safety Limit: Prevent memory overflow if 1M+ results
-                        if (matchCount >= 100000) goto search_complete;
+                        if (matchCount >= 100000) {
+                            searchComplete = true;
+                            break;
+                        }
                     }
                 }
             }
+            if (searchComplete) break;
             currentAddr += readSize;
         }
+        if (searchComplete) break;
     }
 
-search_complete:
     // Update global searchResults safely
     {
         std::lock_guard<std::mutex> lock(searchResultsMutex);
@@ -238,7 +247,8 @@ Java_com_techted89_gameex_NativeScanner_readMemory(
 
     jbyteArray result = env->NewByteArray(bytes_read);
     if (result == nullptr) {
-        return nullptr;
+        // Return empty array instead of nullptr on OOM to be consistent with other error paths
+        return env->NewByteArray(0);
     }
 
     env->SetByteArrayRegion(result, 0, bytes_read, (jbyte*)buffer.data());

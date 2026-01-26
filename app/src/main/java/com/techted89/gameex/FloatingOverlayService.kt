@@ -49,6 +49,7 @@ class FloatingOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        com.techted89.gameex.scripting.GameGuardianAPI.init(this)
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
         // 1. Inflate Views

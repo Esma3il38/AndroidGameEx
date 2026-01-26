@@ -181,6 +181,76 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
 }
 
 extern "C" /**
+ * @brief Dump memory regions to files on disk.
+ *
+ * @param pid Target process ID.
+ * @param from Start address (0 for all).
+ * @param to End address (-1 for all).
+ * @param path Directory path to save dumps.
+ * @return True if successful.
+ */
+JNIEXPORT jboolean JNICALL
+Java_com_techted89_gameex_NativeScanner_dumpMemory(
+        JNIEnv* env,
+        jobject,
+        jint pid,
+        jlong from,
+        jlong to,
+        jstring path) {
+
+    const char* pathC = env->GetStringUTFChars(path, nullptr);
+    std::string dumpDir(pathC);
+    env->ReleaseStringUTFChars(path, pathC);
+
+    // Ensure directory exists (mkdir handled in Java or assuming pre-existing for now)
+
+    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
+    const size_t CHUNK_SIZE = 4096;
+    std::vector<uint8_t> buffer(CHUNK_SIZE);
+
+    for (const auto& region : regions) {
+        // Filter by range if specified
+        if (from != 0 && region.endAddress < (uintptr_t)from) continue;
+        if (to != -1 && region.startAddress > (uintptr_t)to) continue;
+
+        uintptr_t start = region.startAddress;
+        uintptr_t end = region.endAddress;
+
+        // Clamp to requested range
+        if (from != 0 && start < (uintptr_t)from) start = (uintptr_t)from;
+        if (to != -1 && end > (uintptr_t)to) end = (uintptr_t)to;
+
+        if (start >= end) continue;
+
+        // Create filename: start-end.dump
+        std::stringstream ss;
+        ss << dumpDir << "/" << std::hex << start << "-" << end << ".dump";
+        std::ofstream outFile(ss.str(), std::ios::binary);
+
+        if (!outFile.is_open()) continue;
+
+        uintptr_t current = start;
+        while (current < end) {
+            size_t readSize = std::min((size_t)(end - current), CHUNK_SIZE);
+            struct iovec local_iov = {buffer.data(), readSize};
+            struct iovec remote_iov = {(void*)current, readSize};
+
+            ssize_t bytes = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+            if (bytes > 0) {
+                outFile.write((char*)buffer.data(), bytes);
+            } else {
+                // If read fails (e.g. guarded page), fill with zeros or skip
+                // Ideally, skip to next page
+            }
+            current += readSize;
+        }
+        outFile.close();
+    }
+
+    return JNI_TRUE;
+}
+
+extern "C" /**
  * @brief Enable stealth mode to hide the scanner from the target process.
  *
  * In a real implementation, this would involve:

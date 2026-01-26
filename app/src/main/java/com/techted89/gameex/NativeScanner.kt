@@ -71,6 +71,11 @@ external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
     external fun assembleScript(inPath: String, outPath: String)
 
     /**
+     * Dumps memory regions to files on disk.
+     */
+    external fun dumpMemory(pid: Int, from: Long, to: Long, path: String): Boolean
+
+    /**
  * Retrieves up to the specified number of addresses discovered by the native scanner.
  *
  * @param limit Maximum number of addresses to return.

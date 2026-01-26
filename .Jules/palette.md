@@ -34,3 +34,6 @@
 ## 2024-05-23 - API Documentation & Stubs
 **Learning:** Saving external documentation (GG Reference) and mirroring it in code (API stubs) significantly speeds up future scripting integration.
 **Action:** When implementing an emulation layer, always create a comprehensive API stub class first.
+## 2024-05-23 - Native to Script Bridge
+**Learning:** Bridging native C++ memory functions to a high-level scripting API requires a robust Kotlin/Java middleware that handles context (Context/Activity) management.
+**Action:** Use WeakReferences for context in singleton API objects to prevent leaks.

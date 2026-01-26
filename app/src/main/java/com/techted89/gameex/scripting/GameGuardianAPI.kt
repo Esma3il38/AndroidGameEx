@@ -1,10 +1,18 @@
 package com.techted89.gameex.scripting
 
+import android.content.Context
 import com.techted89.gameex.NativeScanner
 import com.techted89.gameex.MemoryResult
 import com.techted89.gameex.utils.ProcessUtils
+import com.techted89.gameex.utils.SystemUtils
+import java.lang.ref.WeakReference
 
 object GameGuardianAPI {
+    private var contextRef: WeakReference<Context>? = null
+
+    fun init(context: Context) {
+        contextRef = WeakReference(context)
+    }
 
     // Constants
     const val TYPE_AUTO = 127
@@ -53,6 +61,25 @@ object GameGuardianAPI {
      */
     fun editAll(text: String, type: Int) {
         // NativeScanner.writeMemoryLoop(...)
+    }
+
+    fun dumpMemory(from: Long, to: Long, dir: String, flags: Int? = null): Boolean {
+        // PID 0 in mockup refers to selected process context
+        return NativeScanner.dumpMemory(0, from, to, dir)
+    }
+
+    fun copyText(text: String, fixLocale: Boolean = true) {
+        contextRef?.get()?.let { SystemUtils.copyText(it, text) }
+    }
+
+    fun isPackageInstalled(pkg: String): Boolean {
+        return contextRef?.get()?.let { SystemUtils.isPackageInstalled(it, pkg) } ?: false
+    }
+
+    fun getTargetPackage(): String? {
+        // Assuming target PID is globally managed or passed. For now using placeholder 0 or requiring injection.
+        // Ideally this API object would be part of a ScriptEngine instance with context.
+        return SystemUtils.getTargetPackage(0)
     }
 
     fun clearResults() {

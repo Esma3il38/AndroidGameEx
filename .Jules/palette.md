@@ -22,3 +22,6 @@
 ## 2024-05-23 - Advanced Features Integration
 **Learning:** Implementing advanced features (Scripting, Advanced Search) requires a layered approach: Core Engine (C++) -> Native Interface (JNI) -> API Layer (Kotlin) -> UI.
 **Action:** When adding complex engine features, first define the API contract in the Native Interface.
+## 2024-05-23 - Visualizing Code Concepts
+**Learning:** For complex data (like module lists), raw text views are insufficient. Always use structured lists (RecyclerView) even if the data model is simple strings.
+**Action:** Default to RecyclerView for any data that might exceed 5 lines or need scrolling.

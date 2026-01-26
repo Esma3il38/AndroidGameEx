@@ -11,6 +11,7 @@
 #include <mutex>
 #include <algorithm>
 #include <cinttypes>
+#include <iostream>
 
 // Define the structure of a memory region
 struct MemoryRegion {

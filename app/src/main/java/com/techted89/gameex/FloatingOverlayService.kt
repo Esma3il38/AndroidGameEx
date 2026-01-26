@@ -17,6 +17,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import com.techted89.gameex.utils.ProcessUtils
 
 class FloatingOverlayService : Service() {
 
@@ -138,6 +139,7 @@ class FloatingOverlayService : Service() {
 
     private fun setupDashboardLogic() {
         val btnMinimize = dashboardView.findViewById<ImageButton>(R.id.btn_minimize)
+        val btnPauseGame = dashboardView.findViewById<ImageButton>(R.id.btn_pause_game)
 
         // Tab Buttons
         val tabScan = dashboardView.findViewById<Button>(R.id.tab_scan)
@@ -175,7 +177,8 @@ class FloatingOverlayService : Service() {
 
         // Editor Mode Elements
         val btnHook = viewEditor.findViewById<Button>(R.id.btn_hook)
-        val tvModulesList = viewEditor.findViewById<android.widget.TextView>(R.id.tv_modules_list)
+        val rvModulesList = viewEditor.findViewById<RecyclerView>(R.id.rv_modules_list)
+        rvModulesList.layoutManager = LinearLayoutManager(this)
 
         // Script Mode Elements
         val etScriptInput = viewScript.findViewById<EditText>(R.id.et_script_input)
@@ -221,11 +224,20 @@ class FloatingOverlayService : Service() {
                     viewEditor.visibility = View.VISIBLE
 
                     // Refresh modules list when entering Editor
-                    // In real app, run in background.
-                    tvModulesList.text = "Loading..."
-                    // NativeScanner.getLoadedModules(targetPid)...
-                    // Mocking for UI demo:
-                    tvModulesList.text = "libgame.so (0x74220000)\nlibunity.so (0x78002000)\nlibc.so (0x7B000000)"
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        val modules = try {
+                            NativeScanner.getLoadedModules(targetPid).toList()
+                        } catch (e: Exception) {
+                            listOf("Error loading modules: ${e.message}")
+                        }
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            // Reusing MemoryResultAdapter for simplicity since it just shows two texts
+                            // In real app, create ModuleAdapter
+                            val moduleResults = modules.map { MemoryResult(0, it) }
+                            val adapter = MemoryResultAdapter(moduleResults)
+                            rvModulesList.adapter = adapter
+                        }
+                    }
                 }
                 "SCRIPT" -> {
                     tabScript.setBackgroundResource(R.drawable.tab_indicator_active)
@@ -242,6 +254,19 @@ class FloatingOverlayService : Service() {
 
         btnMinimize.setOnClickListener {
             showIcon()
+        }
+
+        btnPauseGame.setOnClickListener {
+            // Toggle Pause/Resume
+            if (ProcessUtils.isProcessPaused(targetPid)) {
+                ProcessUtils.resumeProcess(targetPid)
+                btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_pause)
+                Toast.makeText(this, "Game Resumed", Toast.LENGTH_SHORT).show()
+            } else {
+                ProcessUtils.pauseProcess(targetPid)
+                btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_play)
+                Toast.makeText(this, "Game Paused", Toast.LENGTH_SHORT).show()
+            }
         }
 
         fun performScan(isNext: Boolean = false) {

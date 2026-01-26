@@ -92,14 +92,12 @@
         android:layout_marginTop="8dp"
         android:textStyle="bold"/>
 
-    <TextView
-        android:id="@+id/tv_modules_list"
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_modules_list"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="libgame.so (0x7000...)\nlibunity.so (0x8000...)"
-        android:textColor="#AAAAAA"
-        android:fontFamily="monospace"
-        android:textSize="10sp"
+        android:minHeight="100dp"
+        android:background="#1E1E1E"
         android:padding="4dp"/>
 
 </LinearLayout>

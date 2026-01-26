@@ -18,14 +18,44 @@
         android:fontFamily="monospace"
         android:textSize="12sp"/>
 
-    <Button
-        android:id="@+id/btn_execute_script"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Execute Script"
-        android:backgroundTint="@color/primary_hacker_green"
-        android:textColor="#000000"
-        android:layout_marginTop="8dp"/>
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp">
+
+        <Button
+            android:id="@+id/btn_execute_script"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Execute"
+            android:backgroundTint="@color/primary_hacker_green"
+            android:textColor="#000000"
+            android:layout_marginEnd="4dp"/>
+
+        <Button
+            android:id="@+id/btn_disassemble"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Disasm"
+            android:backgroundTint="#FF9800"
+            android:textColor="#000000"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"/>
+
+        <Button
+            android:id="@+id/btn_assemble"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Asm"
+            android:backgroundTint="#2196F3"
+            android:textColor="#FFFFFF"
+            android:layout_marginStart="4dp"/>
+
+    </LinearLayout>
 
     <TextView
         android:id="@+id/tv_script_output"

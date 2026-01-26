@@ -28,3 +28,6 @@
 ## 2024-05-23 - Security & Stealth
 **Learning:** Security features in memory editors often require root-level tricks (like renaming packages or process hiding). UI for these must be clear about permissions.
 **Action:** Group stealth settings into a dedicated dialog or panel to avoid cluttering the main dashboard.
+## 2024-05-23 - Scripting Tools
+**Learning:** Providing developer tools (assembler/disassembler) within the overlay empowers advanced users to modify game logic on-the-fly without external PC tools.
+**Action:** Expose internal toolchains (like Lua bytecode parsers) to the user interface.

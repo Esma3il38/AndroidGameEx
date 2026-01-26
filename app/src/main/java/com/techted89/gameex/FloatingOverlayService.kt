@@ -184,6 +184,8 @@ class FloatingOverlayService : Service() {
         // Script Mode Elements
         val etScriptInput = viewScript.findViewById<EditText>(R.id.et_script_input)
         val btnExecuteScript = viewScript.findViewById<Button>(R.id.btn_execute_script)
+        val btnDisassemble = viewScript.findViewById<Button>(R.id.btn_disassemble)
+        val btnAssemble = viewScript.findViewById<Button>(R.id.btn_assemble)
         val tvScriptOutput = viewScript.findViewById<android.widget.TextView>(R.id.tv_script_output)
 
         // Initial State
@@ -354,6 +356,43 @@ class FloatingOverlayService : Service() {
             val script = etScriptInput.text.toString()
             val output = com.techted89.gameex.scripting.GameGuardianAPI.executeScript(script)
             tvScriptOutput.text = "Output:\n$output"
+        }
+
+        btnDisassemble.setOnClickListener {
+            val path = "/sdcard/gameex/script.lua" // Mock path
+            val outPath = "/sdcard/gameex/script.asm"
+            Toast.makeText(this, "Disassembling...", Toast.LENGTH_SHORT).show()
+            // In real app, write input content to file first
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                try {
+                    NativeScanner.disassembleScript(path, outPath)
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        tvScriptOutput.text = "Disassembled to $outPath"
+                    }
+                } catch (e: Exception) {
+                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        tvScriptOutput.text = "Error: ${e.message}"
+                    }
+                }
+            }
+        }
+
+        btnAssemble.setOnClickListener {
+            val path = "/sdcard/gameex/script.asm" // Mock path
+            val outPath = "/sdcard/gameex/script.lua"
+            Toast.makeText(this, "Assembling...", Toast.LENGTH_SHORT).show()
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                try {
+                    NativeScanner.assembleScript(path, outPath)
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        tvScriptOutput.text = "Assembled to $outPath"
+                    }
+                } catch (e: Exception) {
+                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        tvScriptOutput.text = "Error: ${e.message}"
+                    }
+                }
+            }
         }
 
         etSearchValue.setOnEditorActionListener { _, actionId, _ ->

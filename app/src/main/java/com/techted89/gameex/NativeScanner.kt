@@ -57,6 +57,20 @@ external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
     external fun enableStealthMode()
 
     /**
+     * Disassembles a Lua script (binary or source) to an assembly listing.
+     * @param inPath Input file path.
+     * @param outPath Output file path (.asm).
+     */
+    external fun disassembleScript(inPath: String, outPath: String)
+
+    /**
+     * Assembles an assembly listing back into a Lua binary chunk.
+     * @param inPath Input assembly file path.
+     * @param outPath Output binary file path.
+     */
+    external fun assembleScript(inPath: String, outPath: String)
+
+    /**
  * Retrieves up to the specified number of addresses discovered by the native scanner.
  *
  * @param limit Maximum number of addresses to return.

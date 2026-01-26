@@ -8,9 +8,13 @@ import android.os.Build
 import android.os.IBinder
 import android.view.*
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.Toast
+import android.view.inputmethod.EditorInfo
 import androidx.core.app.NotificationCompat
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 
 class FloatingOverlayService : Service() {
 
@@ -133,15 +137,43 @@ class FloatingOverlayService : Service() {
     private fun setupDashboardLogic() {
         val btnMinimize = dashboardView.findViewById<ImageButton>(R.id.btn_minimize)
         val btnScan = dashboardView.findViewById<Button>(R.id.btn_scan)
+        val etSearchValue = dashboardView.findViewById<EditText>(R.id.et_search_value)
+        val rvResults = dashboardView.findViewById<RecyclerView>(R.id.rv_results)
+
+        // Setup RecyclerView
+        rvResults.layoutManager = LinearLayoutManager(this)
+        val adapter = MemoryResultAdapter()
+        rvResults.adapter = adapter
 
         btnMinimize.setOnClickListener {
             showIcon()
         }
 
+        fun performScan() {
+            val valueStr = etSearchValue.text.toString()
+            if (valueStr.isNotEmpty()) {
+                Toast.makeText(this, "Scanning for $valueStr in PID $targetPid...", Toast.LENGTH_SHORT).show()
+                // Mock results for now since we can't reliably scan in this env
+                val mockResults = listOf(
+                    MemoryResult(0x12345678, valueStr),
+                    MemoryResult(0xABCDEF00, valueStr),
+                    MemoryResult(0x88776655, valueStr)
+                )
+                adapter.updateData(mockResults)
+            }
+        }
+
         btnScan.setOnClickListener {
-            // TRIGGER THE NATIVE SCANNER HERE
-            Toast.makeText(this, "Scanning PID $targetPid...", Toast.LENGTH_SHORT).show()
-            // NativeScanner.readMemory(...)
+            performScan()
+        }
+
+        etSearchValue.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                performScan()
+                true
+            } else {
+                false
+            }
         }
     }
 

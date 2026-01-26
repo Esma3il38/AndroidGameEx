@@ -25,8 +25,9 @@
             android:importantForAccessibility="no"/>
 
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
             android:orientation="vertical"
             android:layout_gravity="center_vertical">
 
@@ -48,6 +49,14 @@
                 android:text="PID: 1234"/>
 
         </LinearLayout>
+
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/ic_chevron_right"
+            android:layout_gravity="center_vertical"
+            android:contentDescription="@string/cd_process_navigation"
+            app:tint="@color/primary_hacker_green"/>
 
     </LinearLayout>
 

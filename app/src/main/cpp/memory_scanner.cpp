@@ -20,6 +20,16 @@ struct MemoryRegion {
 // In a real app, this might be stored in a temporary file to save RAM.
 std::vector<long> searchResults;
 
+/**
+ * @brief Collects readable and writable memory regions for a given process.
+ *
+ * Parses the target process's memory map and returns a list of MemoryRegion entries
+ * that are marked readable and writable and whose path does not indicate device nodes,
+ * shared libraries (.so), or font files (.ttf).
+ *
+ * @param pid Process ID whose /proc/[pid]/maps will be examined.
+ * @return std::vector<MemoryRegion> Vector of filtered MemoryRegion objects; empty if the maps file cannot be opened or no regions match the criteria.
+ */
 std::vector<MemoryRegion> getMemoryRegions(int pid) {
     std::vector<MemoryRegion> regions;
     std::string mapsPath = "/proc/" + std::to_string(pid) + "/maps";
@@ -61,7 +71,19 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
     return regions;
 }
 
-extern "C" JNIEXPORT jint JNICALL
+extern "C" /**
+ * @brief Scans a target process's readable-and-writable memory regions for a 32-bit integer value.
+ *
+ * Populates the module-global searchResults with absolute addresses of every 4-byte-aligned match
+ * and stops when either the entire addressable set of filtered regions has been scanned or a safety
+ * limit of 100000 matches is reached.
+ *
+ * @param env JNI environment (unused in behavior description).
+ * @param[in] pid Target process ID whose memory will be scanned.
+ * @param[in] valueToFind 32-bit integer value to search for.
+ * @return jint The number of matches recorded in searchResults (capped at 100000).
+ */
+JNIEXPORT jint JNICALL
 Java_com_techted89_gameex_NativeScanner_searchMemory(
         JNIEnv* env,
         jobject /* this */,
@@ -121,7 +143,17 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
     return matchCount;
 }
 
-extern "C" JNIEXPORT jlongArray JNICALL
+extern "C" /**
+ * @brief Create a Java long array populated with found memory addresses.
+ *
+ * Constructs and returns a Java long array containing up to `limit` addresses
+ * taken from the native `searchResults` buffer.
+ *
+ * @param limit Maximum number of addresses to return; if `limit` is greater
+ *              than the number of stored results, all available results are returned.
+ * @return jlongArray Java long array whose length is min(limit, number of stored results)
+ */
+JNIEXPORT jlongArray JNICALL
 Java_com_techted89_gameex_NativeScanner_getResults(
         JNIEnv* env,
         jobject /* this */,
@@ -135,7 +167,15 @@ Java_com_techted89_gameex_NativeScanner_getResults(
     return resultArr;
 }
 
-extern "C" JNIEXPORT jbyteArray JNICALL
+extern "C" /**
+ * @brief Read a block of memory from a target process and return it as a Java byte array.
+ *
+ * @param pid Target process ID to read memory from.
+ * @param address Start address in the target process to read.
+ * @param size Number of bytes to read starting at `address`.
+ * @return jbyteArray Java byte array containing the bytes actually read from the target process; an empty array if the read failed.
+ */
+JNIEXPORT jbyteArray JNICALL
 Java_com_techted89_gameex_NativeScanner_readMemory(
         JNIEnv* env,
         jobject /* this */,

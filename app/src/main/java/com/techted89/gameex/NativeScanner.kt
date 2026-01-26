@@ -25,6 +25,23 @@ external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
     external fun searchMemory(pid: Int, value: Int): Int
 
     /**
+     * Filters the current search results, keeping only those that match the new value.
+     *
+     * @param pid The target process ID.
+     * @param value The new value to filter for.
+     * @return The number of remaining matches.
+     */
+    external fun filterMemory(pid: Int, value: Int): Int
+
+    /**
+     * Retrieves a list of loaded modules (libraries) in the target process.
+     *
+     * @param pid The target process ID.
+     * @return An array of strings representing loaded module names/paths.
+     */
+    external fun getLoadedModules(pid: Int): Array<String>
+
+    /**
  * Retrieves up to the specified number of addresses discovered by the native scanner.
  *
  * @param limit Maximum number of addresses to return.

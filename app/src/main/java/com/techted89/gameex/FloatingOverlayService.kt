@@ -151,6 +151,7 @@ class FloatingOverlayService : Service() {
 
         // Scan Mode Elements
         val btnScan = viewScan.findViewById<Button>(R.id.btn_scan)
+        val btnNextScan = viewScan.findViewById<Button>(R.id.btn_next_scan)
         val etSearchValue = viewScan.findViewById<EditText>(R.id.et_search_value)
         val progressScan = viewScan.findViewById<View>(R.id.progress_scan)
 
@@ -162,6 +163,10 @@ class FloatingOverlayService : Service() {
         rvResults.layoutManager = LinearLayoutManager(this)
         val adapter = MemoryResultAdapter()
         rvResults.adapter = adapter
+
+        // Editor Mode Elements
+        val btnHook = viewEditor.findViewById<Button>(R.id.btn_hook)
+        val tvModulesList = viewEditor.findViewById<android.widget.TextView>(R.id.tv_modules_list)
 
         // Initial State
         layoutEmptyState.visibility = View.VISIBLE
@@ -197,6 +202,13 @@ class FloatingOverlayService : Service() {
                     tabEditor.setBackgroundResource(R.drawable.tab_indicator_active)
                     tabEditor.setTextColor(0xFF00E676.toInt())
                     viewEditor.visibility = View.VISIBLE
+
+                    // Refresh modules list when entering Editor
+                    // In real app, run in background.
+                    tvModulesList.text = "Loading..."
+                    // NativeScanner.getLoadedModules(targetPid)...
+                    // Mocking for UI demo:
+                    tvModulesList.text = "libgame.so (0x74220000)\nlibunity.so (0x78002000)\nlibc.so (0x7B000000)"
                 }
             }
         }
@@ -209,7 +221,7 @@ class FloatingOverlayService : Service() {
             showIcon()
         }
 
-        fun performScan() {
+        fun performScan(isNext: Boolean = false) {
             val valueStr = etSearchValue.text.toString()
             if (valueStr.isEmpty()) {
                 etSearchValue.error = "Enter a value"
@@ -219,6 +231,7 @@ class FloatingOverlayService : Service() {
             // Show Loading
             progressScan.visibility = View.VISIBLE
             btnScan.isEnabled = false
+            btnNextScan.isEnabled = false
 
             // Simulate Async Scan
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
@@ -227,11 +240,16 @@ class FloatingOverlayService : Service() {
                 val mockResults = if (valueStr == "0") {
                     emptyList()
                 } else {
-                    listOf(
-                        MemoryResult(0x12345678, valueStr),
-                        MemoryResult(0xABCDEF00, valueStr),
-                        MemoryResult(0x88776655, valueStr)
-                    )
+                    // Logic: If next scan, return filtered mock results
+                    if (isNext) {
+                         listOf(MemoryResult(0x12345678, valueStr))
+                    } else {
+                        listOf(
+                            MemoryResult(0x12345678, valueStr),
+                            MemoryResult(0xABCDEF00, valueStr),
+                            MemoryResult(0x88776655, valueStr)
+                        )
+                    }
                 }
 
                 adapter.updateData(mockResults)
@@ -239,6 +257,7 @@ class FloatingOverlayService : Service() {
                 // Update UI based on results
                 progressScan.visibility = View.GONE
                 btnScan.isEnabled = true
+                btnNextScan.isEnabled = true
 
                 // Switch to results tab automatically
                 switchTab("RESULTS")
@@ -255,6 +274,14 @@ class FloatingOverlayService : Service() {
 
         btnScan.setOnClickListener {
             performScan()
+        }
+
+        btnNextScan.setOnClickListener {
+            performScan(isNext = true)
+        }
+
+        btnHook.setOnClickListener {
+             Toast.makeText(this, "Hooking functions...", Toast.LENGTH_SHORT).show()
         }
 
         etSearchValue.setOnEditorActionListener { _, actionId, _ ->

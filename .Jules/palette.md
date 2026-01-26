@@ -13,3 +13,6 @@
 ## 2024-05-23 - Modality in Overlays
 **Learning:** Complex overlay tools need clear modes (Tabs) to prevent UI clutter.
 **Action:** When an overlay has >2 primary functions, split them into distinct tabs/modes immediately.
+## 2024-05-23 - Contextual Inputs
+**Learning:** Filtered scans require maintaining state context (e.g., 'isNextScan'). UI elements should adapt (show/hide) based on this context to guide the user workflow.
+**Action:** When implementing multi-step workflows, ensure the UI explicitly reflects the current step.

@@ -39,7 +39,7 @@
 
     <HorizontalScrollView
         android:layout_width="match_parent"
-        android:layout_height="200dp"
+        android:layout_height="120dp"
         android:background="#000000">
 
         <TextView
@@ -53,5 +53,53 @@
             android:padding="8dp"/>
 
     </HorizontalScrollView>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp">
+
+        <Button
+            android:id="@+id/btn_trace_offset"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Trace Offset"
+            android:backgroundTint="#FF9800"
+            android:textColor="#000000"
+            android:textSize="12sp"
+            android:layout_marginEnd="4dp"/>
+
+        <Button
+            android:id="@+id/btn_hook"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Hook func"
+            android:backgroundTint="#F44336"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:layout_marginStart="4dp"/>
+
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Loaded Modules:"
+        android:textColor="@color/primary_hacker_green"
+        android:layout_marginTop="8dp"
+        android:textStyle="bold"/>
+
+    <TextView
+        android:id="@+id/tv_modules_list"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="libgame.so (0x7000...)\nlibunity.so (0x8000...)"
+        android:textColor="#AAAAAA"
+        android:fontFamily="monospace"
+        android:textSize="10sp"
+        android:padding="4dp"/>
 
 </LinearLayout>

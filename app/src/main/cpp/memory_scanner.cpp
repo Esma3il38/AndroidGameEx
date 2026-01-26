@@ -255,3 +255,95 @@ Java_com_techted89_gameex_NativeScanner_readMemory(
     env->SetByteArrayRegion(result, 0, bytes_read, (jbyte*)buffer.data());
     return result;
 }
+
+extern "C" /**
+ * @brief Filter the current search results (Next Scan).
+ *
+ * Iterates through the existing results in `searchResults`, reads the memory at each address,
+ * and keeps only those that equal `valueToFind`.
+ *
+ * @param pid Target process ID.
+ * @param valueToFind New value to filter by.
+ * @return Number of matches remaining.
+ */
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_filterMemory(
+        JNIEnv* env,
+        jobject /* this */,
+        jint pid,
+        jint valueToFind) {
+
+    std::lock_guard<std::mutex> lock(searchResultsMutex);
+
+    // Use the erase-remove idiom to filter in-place
+    // We must read memory for each address.
+    auto it = std::remove_if(searchResults.begin(), searchResults.end(), [&](jlong addr) {
+        int val = 0;
+        struct iovec local_iov = {&val, sizeof(int)};
+        struct iovec remote_iov = {(void*)(uintptr_t)addr, sizeof(int)};
+
+        ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+
+        // If read fails or value doesn't match, we REMOVE it (return true)
+        if (bytesRead != sizeof(int)) {
+            return true;
+        }
+        return val != valueToFind;
+    });
+
+    searchResults.erase(it, searchResults.end());
+
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Filter Complete. Remaining: %zu", searchResults.size());
+    return (jint)searchResults.size();
+}
+
+extern "C" /**
+ * @brief Get loaded modules (.so files) for the process.
+ *
+ * @param pid Target process ID.
+ * @return String array of module paths.
+ */
+JNIEXPORT jobjectArray JNICALL
+Java_com_techted89_gameex_NativeScanner_getLoadedModules(
+        JNIEnv* env,
+        jobject /* this */,
+        jint pid) {
+
+    std::vector<std::string> modules;
+    std::string mapsPath = "/proc/" + std::to_string(pid) + "/maps";
+    std::ifstream mapsFile(mapsPath);
+
+    if (mapsFile.is_open()) {
+        std::string line;
+        while (std::getline(mapsFile, line)) {
+            // Simple check for .so in the line
+            if (line.find(".so") != std::string::npos) {
+                // Extract path (simplistic approach: finding last space)
+                // Maps format: address perms offset dev inode PATH
+                // PATH starts after the last space/tab
+
+                // Find start of path (heuristic: last token)
+                // Or better, use our previous parsing logic but looking for non-empty path
+                size_t lastSpace = line.find_last_of(" \t");
+                if (lastSpace != std::string::npos && lastSpace + 1 < line.length()) {
+                     std::string path = line.substr(lastSpace + 1);
+                     // Avoid duplicates if multiple segments map the same .so
+                     if (std::find(modules.begin(), modules.end(), path) == modules.end()) {
+                         modules.push_back(path);
+                     }
+                }
+            }
+        }
+    }
+
+    jclass stringClass = env->FindClass("java/lang/String");
+    jobjectArray result = env->NewObjectArray(modules.size(), stringClass, nullptr);
+
+    for (size_t i = 0; i < modules.size(); ++i) {
+        jstring s = env->NewStringUTF(modules[i].c_str());
+        env->SetObjectArrayElement(result, i, s);
+        env->DeleteLocalRef(s);
+    }
+
+    return result;
+}

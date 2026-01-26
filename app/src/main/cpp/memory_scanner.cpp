@@ -1,79 +1,138 @@
 #include <jni.h>
-#include <sys/uio.h>
+#include <string>
 #include <vector>
-#include <android/log.h>
 #include <fstream>
 #include <sstream>
-#include <string>
-#include <iostream>
+#include <sys/uio.h>
+#include <unistd.h>
+#include <android/log.h>
 
-#define LOG_TAG "NativeScanner"
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
-
+// Define the structure of a memory region
 struct MemoryRegion {
     long startAddress;
     long endAddress;
-    long size;
-    std::string permissions;
-    std::string filename;
+    bool isReadable;
+    bool isWritable;
+    bool isExecutable;
 };
 
-std::vector<MemoryRegion> parse_maps(int pid) {
-    std::vector<MemoryRegion> regions;
-    std::stringstream ss;
-    ss << "/proc/" << pid << "/maps";
-    std::string maps_path = ss.str();
+// Global buffer to store found results (Address List)
+// In a real app, this might be stored in a temporary file to save RAM.
+std::vector<long> searchResults;
 
-    std::ifstream maps_file(maps_path);
-    if (!maps_file.is_open()) {
-        LOGE("Failed to open %s", maps_path.c_str());
+std::vector<MemoryRegion> getMemoryRegions(int pid) {
+    std::vector<MemoryRegion> regions;
+    std::string mapsPath = "/proc/" + std::to_string(pid) + "/maps";
+    std::ifstream mapsFile(mapsPath);
+
+    if (!mapsFile.is_open()) {
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Failed to open maps: %s", mapsPath.c_str());
         return regions;
     }
 
     std::string line;
-    while (std::getline(maps_file, line)) {
-        // Line format: 7ffc645e8000-7ffc645e9000 r-xp 00000000 00:00 0 [vdso]
-        long start = 0, end = 0;
-        char perms[5];
-        char offset[20];
-        char dev[10];
-        int inode = 0;
-        char filename_buf[256];
-        filename_buf[0] = '\0'; // Initialize empty
-
-        // Parsing using sscanf can be brittle, but standard for maps
-        // We scan for hex-hex perms ...
-        int items = sscanf(line.c_str(), "%lx-%lx %4s %s %s %d %255[^\n]",
-                           &start, &end, perms, offset, dev, &inode, filename_buf);
-
-        if (items < 2) continue; // Failed to parse basic address
-
-        std::string permissions(perms);
-        std::string filename(filename_buf);
-
-        // Filter: Must be Readable and Writable (rw)
-        // Note: Some game memory might be r-xp (code), but usually we want data (rw-p)
-        // User instruction: "Filter IN regions that are readable and writable (rw)"
-        if (permissions.find("rw") == std::string::npos) {
-            continue;
-        }
-
-        // Filter OUT dangerous regions
-        if (filename.find("/dev/kgsl") != std::string::npos) continue; // GPU memory
-        if (filename.find(".ttf") != std::string::npos) continue; // Fonts
-        if (filename.find("app_process") != std::string::npos) continue; // Process executable itself (often)
-
-        // Construct region
+    while (std::getline(mapsFile, line)) {
         MemoryRegion region;
-        region.startAddress = start;
-        region.endAddress = end;
-        region.size = end - start;
-        region.permissions = permissions;
-        region.filename = filename;
+        char permissions[5];
+        char dev[10]; // Major:Minor
+        long inode;
+        char path[256] = {0}; // Optional path
 
-        regions.push_back(region);
+        // Parse line: 7b3d8000-7b3da000 rw-p 00000000 00:00 0 ...
+        // Using sscanf is fast and efficient for this standard format
+        sscanf(line.c_str(), "%lx-%lx %4s %*s %s %ld %s",
+               &region.startAddress, &region.endAddress, permissions, dev, &inode, path);
+
+        region.isReadable = (permissions[0] == 'r');
+        region.isWritable = (permissions[1] == 'w');
+        region.isExecutable = (permissions[2] == 'x');
+
+        // FILTER: We only want Readable and Writable memory (Data/Heap/Stack)
+        // We explicitly skip video drivers (/dev/kgsl) and system fonts to avoid crashes
+        if (region.isReadable && region.isWritable) {
+             std::string pathStr(path);
+             if (pathStr.find("/dev/") == std::string::npos &&
+                 pathStr.find(".so") == std::string::npos &&
+                 pathStr.find(".ttf") == std::string::npos) {
+                regions.push_back(region);
+             }
+        }
     }
     return regions;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_searchMemory(
+        JNIEnv* env,
+        jobject /* this */,
+        jint pid,
+        jint valueToFind) { // Currently supports Int (DWORD) only
+
+    // 1. Clear previous results
+    searchResults.clear();
+
+    // 2. Get Valid Regions
+    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
+
+    // 3. Buffer for Chunk Reading (e.g., 4KB chunk)
+    const size_t CHUNK_SIZE = 4096;
+    std::vector<uint8_t> buffer(CHUNK_SIZE);
+
+    int matchCount = 0;
+
+    // 4. Iterate over every region
+    for (const auto& region : regions) {
+        long currentAddr = region.startAddress;
+
+        while (currentAddr < region.endAddress) {
+            long remaining = region.endAddress - currentAddr;
+            size_t readSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : remaining;
+
+            // Prepare iovec for process_vm_readv
+            struct iovec local_iov = {buffer.data(), readSize};
+            struct iovec remote_iov = {(void*)currentAddr, readSize};
+
+            ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+
+            if (bytesRead > 0) {
+                // Scan the buffer (Client-side scan)
+                // We stop at bytesRead - 4 to avoid reading past the buffer end for a 4-byte int
+                for (size_t i = 0; i <= bytesRead - 4; i += 4) {
+                    // Reinterpret bytes as Integer
+                    int val = *reinterpret_cast<int*>(&buffer[i]);
+
+                    if (val == valueToFind) {
+                        // FOUND! Save the absolute address
+                        searchResults.push_back(currentAddr + i);
+                        matchCount++;
+
+                        // Safety Limit: Prevent memory overflow if 1M+ results
+                        if (matchCount >= 100000) break;
+                    }
+                }
+            }
+            currentAddr += readSize;
+            if (matchCount >= 100000) break;
+        }
+        if (matchCount >= 100000) break;
+    }
+
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Search Complete. Found: %d", matchCount);
+    return matchCount;
+}
+
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_com_techted89_gameex_NativeScanner_getResults(
+        JNIEnv* env,
+        jobject /* this */,
+        jint limit) {
+
+    int count = (searchResults.size() > limit) ? limit : searchResults.size();
+
+    jlongArray resultArr = env->NewLongArray(count);
+    env->SetLongArrayRegion(resultArr, 0, count, (jlong*)searchResults.data());
+
+    return resultArr;
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL
@@ -96,52 +155,5 @@ Java_com_techted89_gameex_NativeScanner_readMemory(
 
     jbyteArray result = env->NewByteArray(bytes_read);
     env->SetByteArrayRegion(result, 0, bytes_read, (jbyte*)buffer.data());
-    return result;
-}
-
-extern "C" JNIEXPORT jobjectArray JNICALL
-Java_com_techted89_gameex_NativeScanner_getMemoryRegions(
-        JNIEnv* env,
-        jobject /* this */,
-        jint pid) {
-
-    std::vector<MemoryRegion> regions = parse_maps(pid);
-
-    // Find the MemoryRegion class
-    jclass regionClass = env->FindClass("com/techted89/gameex/MemoryRegion");
-    if (regionClass == nullptr) {
-        LOGE("Could not find MemoryRegion class");
-        return nullptr;
-    }
-
-    // Get the constructor ID: (JJJLjava/lang/String;Ljava/lang/String;)V
-    jmethodID constructor = env->GetMethodID(regionClass, "<init>", "(JJJLjava/lang/String;Ljava/lang/String;)V");
-    if (constructor == nullptr) {
-        LOGE("Could not find MemoryRegion constructor");
-        return nullptr;
-    }
-
-    // Create the object array
-    jobjectArray result = env->NewObjectArray(regions.size(), regionClass, nullptr);
-
-    for (size_t i = 0; i < regions.size(); ++i) {
-        jstring perms = env->NewStringUTF(regions[i].permissions.c_str());
-        jstring fname = env->NewStringUTF(regions[i].filename.c_str());
-
-        jobject regionObj = env->NewObject(regionClass, constructor,
-                                           (jlong)regions[i].startAddress,
-                                           (jlong)regions[i].endAddress,
-                                           (jlong)regions[i].size,
-                                           perms,
-                                           fname);
-
-        env->SetObjectArrayElement(result, i, regionObj);
-
-        // Local refs cleanup
-        env->DeleteLocalRef(perms);
-        env->DeleteLocalRef(fname);
-        env->DeleteLocalRef(regionObj);
-    }
-
     return result;
 }

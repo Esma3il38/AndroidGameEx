@@ -9,7 +9,11 @@ import android.view.*
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.widget.TextView
+import androidx.core.app.NotificationCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.CoroutineScope
@@ -29,6 +33,8 @@ class FloatingOverlayService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        startForegroundService()
+
         intent?.let {
             targetPid = it.getIntExtra("PID", -1)
             targetName = it.getStringExtra("PNAME") ?: "Unknown"
@@ -39,6 +45,27 @@ class FloatingOverlayService : Service() {
         }
 
         return START_STICKY
+    }
+
+    private fun startForegroundService() {
+        val channelId = "overlay_channel"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId,
+                "Overlay Service",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(channel)
+        }
+
+        val notification: Notification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("GameEx Overlay")
+            .setContentText("Running...")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .build()
+
+        startForeground(1, notification)
     }
 
     private fun setupFloatingIcon() {

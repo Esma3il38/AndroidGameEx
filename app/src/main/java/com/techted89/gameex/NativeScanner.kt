@@ -13,4 +13,11 @@ object NativeScanner {
      * @param size The number of bytes to read.
      */
     external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
+
+    /**
+     * Parses /proc/[pid]/maps to find valid memory regions.
+     * @param pid The target process ID.
+     * @return Array of MemoryRegion objects.
+     */
+    external fun getMemoryRegions(pid: Int): Array<MemoryRegion>
 }

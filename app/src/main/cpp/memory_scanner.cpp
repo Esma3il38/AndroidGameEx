@@ -50,11 +50,18 @@ static bool shouldFilterPath(const std::string& path) {
  */
 static MemoryRegion parseMemoryMapLine(const std::string& line) {
     MemoryRegion region;
+    // Default initialization
+    region.startAddress = 0;
+    region.endAddress = 0;
+    region.isReadable = false;
+    region.isWritable = false;
+    region.isExecutable = false;
     region.isValid = false;
+    region.filename = "";
 
-    char permissions[5];
-    char dev[10]; // Major:Minor
-    long inode;
+    char permissions[5] = {0};
+    char dev[10] = {0}; // Major:Minor
+    long inode = 0;
     char path[4096] = {0}; // Optional path, large buffer to avoid truncation
     int pos = 0;
 
@@ -159,6 +166,16 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
 
             ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
 
+            if (bytesRead <= 0) {
+                // Error reading memory or empty read.
+                // Advance by readSize to skip this chunk and try next,
+                // or just break if we assume the rest of the region is unreadable.
+                // For robustness, we skip this chunk.
+                currentAddr += readSize;
+                continue;
+            }
+
+            // Use actual bytesRead for the limit
             if (bytesRead >= 4) {
                 // Scan the buffer (Client-side scan)
                 // We stop at i + 4 <= bytesRead to avoid reading past the buffer end for a 4-byte int
@@ -185,7 +202,10 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
                 }
             }
             if (searchComplete) break;
-            currentAddr += readSize;
+
+            // Advance by the actual amount read to ensure we don't skip data
+            // if we got a partial read, or the full chunk if successful.
+            currentAddr += (size_t)bytesRead;
         }
         if (searchComplete) break;
     }
@@ -212,7 +232,7 @@ Java_com_techted89_gameex_NativeScanner_getResults(
 
     jlongArray resultArr = env->NewLongArray(count);
     if (resultArr == nullptr) {
-        return env->NewLongArray(0); // Return empty array for consistency
+        return env->NewLongArray(0); // Return empty array on error instead of nullptr
     }
 
     if (count > 0) {

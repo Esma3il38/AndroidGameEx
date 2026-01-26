@@ -39,6 +39,14 @@
                 android:contentDescription="Pause/Resume Game"
                 android:layout_marginEnd="8dp"/>
             <ImageButton
+                android:id="@+id/btn_stealth"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:background="@android:drawable/ic_lock_lock"
+                android:backgroundTint="@color/primary_hacker_green"
+                android:contentDescription="Stealth Settings"
+                android:layout_marginEnd="8dp"/>
+            <ImageButton
                 android:id="@+id/btn_minimize"
                 android:layout_width="24dp"
                 android:layout_height="24dp"

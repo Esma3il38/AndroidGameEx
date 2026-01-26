@@ -140,6 +140,7 @@ class FloatingOverlayService : Service() {
     private fun setupDashboardLogic() {
         val btnMinimize = dashboardView.findViewById<ImageButton>(R.id.btn_minimize)
         val btnPauseGame = dashboardView.findViewById<ImageButton>(R.id.btn_pause_game)
+        val btnStealth = dashboardView.findViewById<ImageButton>(R.id.btn_stealth)
 
         // Tab Buttons
         val tabScan = dashboardView.findViewById<Button>(R.id.tab_scan)
@@ -254,6 +255,10 @@ class FloatingOverlayService : Service() {
 
         btnMinimize.setOnClickListener {
             showIcon()
+        }
+
+        btnStealth.setOnClickListener {
+            showStealthDialog()
         }
 
         btnPauseGame.setOnClickListener {
@@ -382,6 +387,36 @@ class FloatingOverlayService : Service() {
         windowManager.addView(iconView, iconParams)
 
         isDashboardVisible = false
+    }
+
+    private fun showStealthDialog() {
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_stealth_settings, null)
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_DIM_BEHIND,
+            PixelFormat.TRANSLUCENT
+        )
+        params.dimAmount = 0.7f
+        params.gravity = Gravity.CENTER
+
+        windowManager.addView(dialogView, params)
+
+        val btnApply = dialogView.findViewById<Button>(R.id.btn_apply_stealth)
+        val cbHide = dialogView.findViewById<android.widget.CheckBox>(R.id.cb_hide_from_game)
+        val cbRandom = dialogView.findViewById<android.widget.CheckBox>(R.id.cb_randomize_pkg)
+
+        btnApply.setOnClickListener {
+            if (cbHide.isChecked) {
+                NativeScanner.enableStealthMode()
+            }
+            if (cbRandom.isChecked) {
+                ProcessUtils.randomizePackageName(this)
+            }
+            windowManager.removeView(dialogView)
+        }
     }
 
     override fun onDestroy() {

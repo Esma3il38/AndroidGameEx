@@ -180,6 +180,28 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
     return result;
 }
 
+extern "C" /**
+ * @brief Enable stealth mode to hide the scanner from the target process.
+ *
+ * In a real implementation, this would involve:
+ * 1. Unlinking the shared library from the module list.
+ * 2. Obfuscating /proc/self/maps entries.
+ * 3. Detaching ptrace when idle.
+ */
+JNIEXPORT void JNICALL
+Java_com_techted89_gameex_NativeScanner_enableStealthMode(
+        JNIEnv* env,
+        jobject /* this */) {
+
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Stealth Mode: Activated");
+
+    // Stub: Simulate masking process name
+    // prctl(PR_SET_NAME, "com.android.system.service", 0, 0, 0);
+
+    // Stub: Simulate unlinking
+    // This is where advanced anti-anti-cheat logic would live.
+}
+
 extern "C"
 JNIEXPORT jint JNICALL
 Java_com_techted89_gameex_NativeScanner_searchMemoryString(

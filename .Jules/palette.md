@@ -25,3 +25,6 @@
 ## 2024-05-23 - Visualizing Code Concepts
 **Learning:** For complex data (like module lists), raw text views are insufficient. Always use structured lists (RecyclerView) even if the data model is simple strings.
 **Action:** Default to RecyclerView for any data that might exceed 5 lines or need scrolling.
+## 2024-05-23 - Security & Stealth
+**Learning:** Security features in memory editors often require root-level tricks (like renaming packages or process hiding). UI for these must be clear about permissions.
+**Action:** Group stealth settings into a dedicated dialog or panel to avoid cluttering the main dashboard.

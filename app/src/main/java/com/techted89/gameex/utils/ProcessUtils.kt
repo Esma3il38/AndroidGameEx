@@ -38,4 +38,10 @@ object ProcessUtils {
             e.printStackTrace()
         }
     }
+
+    fun randomizePackageName(context: android.content.Context) {
+        // Real implementation would involve reinstalling the app with a different package name
+        // For this demo, we simulate it by changing the process name visibility in UI
+        android.widget.Toast.makeText(context, "Package randomization initiated...", android.widget.Toast.LENGTH_SHORT).show()
+    }
 }

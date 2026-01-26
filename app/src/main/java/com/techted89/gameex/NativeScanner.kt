@@ -52,6 +52,11 @@ external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
     external fun getLoadedModules(pid: Int): Array<String>
 
     /**
+     * Enables stealth mode features (hiding process, randomized name).
+     */
+    external fun enableStealthMode()
+
+    /**
  * Retrieves up to the specified number of addresses discovered by the native scanner.
  *
  * @param limit Maximum number of addresses to return.

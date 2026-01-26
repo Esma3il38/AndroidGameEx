@@ -6,4 +6,6 @@
     <color name="primary_hacker_green">#00E676</color>
     <color name="background_oled_black">#121212</color>
     <color name="surface_card_grey">#1E1E1E</color>
+    <color name="error_red">#CF6679</color>
+    <color name="text_secondary">#B3FFFFFF</color>
 </resources>

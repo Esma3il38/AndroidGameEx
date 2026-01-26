@@ -7,3 +7,6 @@
 ## 2024-05-23 - Functional Affordances
 **Learning:** UX affordances (like buttons/actions) must always be backed by implementation, even if mocked initially. Dead UI elements destroy trust.
 **Action:** When adding interactive elements, always implement at least a feedback response (Toast, mocked action) immediately.
+## 2024-05-23 - Empty & Error States
+**Learning:** Empty states prevent 'broken app' perception. Always guide the user when no data is present.
+**Action:** Audit all list views for missing empty states.

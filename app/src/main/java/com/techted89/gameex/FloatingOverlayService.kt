@@ -15,6 +15,8 @@ import android.view.inputmethod.EditorInfo
 import androidx.core.app.NotificationCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 class FloatingOverlayService : Service() {
 
@@ -139,11 +141,17 @@ class FloatingOverlayService : Service() {
         val btnScan = dashboardView.findViewById<Button>(R.id.btn_scan)
         val etSearchValue = dashboardView.findViewById<EditText>(R.id.et_search_value)
         val rvResults = dashboardView.findViewById<RecyclerView>(R.id.rv_results)
+        val layoutEmptyState = dashboardView.findViewById<View>(R.id.layout_empty_state)
+        val progressScan = dashboardView.findViewById<View>(R.id.progress_scan)
 
         // Setup RecyclerView
         rvResults.layoutManager = LinearLayoutManager(this)
         val adapter = MemoryResultAdapter()
         rvResults.adapter = adapter
+
+        // Initial State
+        layoutEmptyState.visibility = View.VISIBLE
+        rvResults.visibility = View.GONE
 
         btnMinimize.setOnClickListener {
             showIcon()
@@ -151,15 +159,43 @@ class FloatingOverlayService : Service() {
 
         fun performScan() {
             val valueStr = etSearchValue.text.toString()
-            if (valueStr.isNotEmpty()) {
-                Toast.makeText(this, "Scanning for $valueStr in PID $targetPid...", Toast.LENGTH_SHORT).show()
-                // Mock results for now since we can't reliably scan in this env
-                val mockResults = listOf(
-                    MemoryResult(0x12345678, valueStr),
-                    MemoryResult(0xABCDEF00, valueStr),
-                    MemoryResult(0x88776655, valueStr)
-                )
+            if (valueStr.isEmpty()) {
+                etSearchValue.error = "Enter a value"
+                return
+            }
+
+            // Show Loading
+            progressScan.visibility = View.VISIBLE
+            layoutEmptyState.visibility = View.GONE
+            rvResults.visibility = View.GONE
+            btnScan.isEnabled = false
+
+            // Simulate Async Scan
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                kotlinx.coroutines.delay(1000) // Mock scan delay
+
+                val mockResults = if (valueStr == "0") {
+                    emptyList()
+                } else {
+                    listOf(
+                        MemoryResult(0x12345678, valueStr),
+                        MemoryResult(0xABCDEF00, valueStr),
+                        MemoryResult(0x88776655, valueStr)
+                    )
+                }
+
                 adapter.updateData(mockResults)
+
+                // Update UI based on results
+                progressScan.visibility = View.GONE
+                btnScan.isEnabled = true
+                if (mockResults.isEmpty()) {
+                    layoutEmptyState.visibility = View.VISIBLE
+                    rvResults.visibility = View.GONE
+                } else {
+                    layoutEmptyState.visibility = View.GONE
+                    rvResults.visibility = View.VISIBLE
+                }
             }
         }
 

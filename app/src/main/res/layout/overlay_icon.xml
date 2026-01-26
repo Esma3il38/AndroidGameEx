@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content">
+
+    <ImageView
+        android:id="@+id/icon_image"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:src="@mipmap/ic_launcher_round"
+        android:background="@drawable/circle_bg_green"
+        android:elevation="8dp"
+        android:contentDescription="Open Scanner" />
+
+    <View
+        android:layout_width="12dp"
+        android:layout_height="12dp"
+        android:background="#FF0000"
+        android:layout_gravity="top|end" />
+</FrameLayout>

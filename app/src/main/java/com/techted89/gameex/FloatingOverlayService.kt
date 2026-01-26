@@ -1,98 +1,99 @@
 package com.techted89.gameex
 
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
 import android.view.*
 import android.widget.Button
-import android.widget.EditText
-import android.widget.ImageView
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.widget.TextView
+import android.widget.ImageButton
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class FloatingOverlayService : Service() {
 
     private lateinit var windowManager: WindowManager
-    private var floatingView: View? = null
-    private var dashboardView: View? = null
-    private var isDashboardOpen = false
-    private var targetPid = -1
-    private var targetName = "Unknown"
+    private lateinit var iconView: View
+    private lateinit var dashboardView: View
+
+    // Layout Params storage
+    private lateinit var iconParams: WindowManager.LayoutParams
+    private lateinit var dashboardParams: WindowManager.LayoutParams
+
+    private var targetPid: Int = -1
+    private var isDashboardVisible = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForegroundService()
+        targetPid = intent?.getIntExtra("PID", -1) ?: -1
 
-        intent?.let {
-            targetPid = it.getIntExtra("PID", -1)
-            targetName = it.getStringExtra("PNAME") ?: "Unknown"
-        }
+        // Ensure we run as Foreground to prevent killing
+        startForeground(1, NotificationCompat.Builder(this, "overlay_channel")
+            .setContentTitle("Memory Editor Active")
+            .setContentText("Attached to PID: $targetPid")
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .build())
 
-        if (floatingView == null) {
-            setupFloatingIcon()
-        }
-
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
-    private fun startForegroundService() {
-        val channelId = "overlay_channel"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                channelId,
-                "Overlay Service",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
-        }
+    override fun onCreate() {
+        super.onCreate()
+        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
-        val notification: Notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("GameEx Overlay")
-            .setContentText("Running...")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .build()
+        // 1. Inflate Views
+        val inflater = LayoutInflater.from(this)
+        iconView = inflater.inflate(R.layout.overlay_icon, null)
+        dashboardView = inflater.inflate(R.layout.overlay_dashboard, null)
 
-        startForeground(1, notification)
-    }
-
-    private fun setupFloatingIcon() {
-        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-
+        // 2. Initialize Layout Params (Icon State)
+        // TYPE_APPLICATION_OVERLAY is required for Android 8.0+
         val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
-        val params = WindowManager.LayoutParams(
+        iconParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             layoutType,
+            // FLAG_NOT_FOCUSABLE allows touch events to pass through to the game
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         )
-        params.gravity = Gravity.TOP or Gravity.START
-        params.x = 0
-        params.y = 100
+        // Initial position
+        iconParams.gravity = Gravity.TOP or Gravity.START
+        iconParams.x = 0
+        iconParams.y = 100
 
-        floatingView = LayoutInflater.from(this).inflate(R.layout.layout_floating_icon, null)
+        // 3. Initialize Dashboard Params
+        dashboardParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            layoutType,
+            // FLAG_DIM_BEHIND darkens the game background
+            WindowManager.LayoutParams.FLAG_DIM_BEHIND,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            dimAmount = 0.5f
+            gravity = Gravity.CENTER
+        }
 
-        val icon = floatingView!!.findViewById<ImageView>(R.id.icon_floating_head)
+        // 4. Setup Listeners
+        setupTouchDrag()
+        setupDashboardLogic()
 
-        icon.setOnTouchListener(object : View.OnTouchListener {
+        // 5. Add Icon initially
+        windowManager.addView(iconView, iconParams)
+    }
+
+    private fun setupTouchDrag() {
+        // Logic to drag the icon around the screen
+        iconView.setOnTouchListener(object : View.OnTouchListener {
             private var initialX = 0
             private var initialY = 0
             private var initialTouchX = 0f
@@ -101,143 +102,75 @@ class FloatingOverlayService : Service() {
             override fun onTouch(v: View, event: MotionEvent): Boolean {
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
-                        initialX = params.x
-                        initialY = params.y
+                        initialX = iconParams.x
+                        initialY = iconParams.y
                         initialTouchX = event.rawX
                         initialTouchY = event.rawY
                         return true
                     }
-                    MotionEvent.ACTION_UP -> {
-                        val diffX = (event.rawX - initialTouchX).toInt()
-                        val diffY = (event.rawY - initialTouchY).toInt()
-                        if (Math.abs(diffX) < 10 && Math.abs(diffY) < 10) {
-                            openDashboard()
-                        }
+                    MotionEvent.ACTION_MOVE -> {
+                        iconParams.x = initialX + (event.rawX - initialTouchX).toInt()
+                        iconParams.y = initialY + (event.rawY - initialTouchY).toInt()
+                        windowManager.updateViewLayout(iconView, iconParams)
                         return true
                     }
-                    MotionEvent.ACTION_MOVE -> {
-                        params.x = initialX + (event.rawX - initialTouchX).toInt()
-                        params.y = initialY + (event.rawY - initialTouchY).toInt()
-                        windowManager.updateViewLayout(floatingView, params)
+                    MotionEvent.ACTION_UP -> {
+                        // Detect "Click" vs "Drag"
+                        val diffX = (event.rawX - initialTouchX).toInt()
+                        val diffY = (event.rawY - initialTouchY).toInt()
+
+                        if (Math.abs(diffX) < 10 && Math.abs(diffY) < 10) {
+                            showDashboard()
+                        }
                         return true
                     }
                 }
                 return false
             }
         })
-
-        windowManager.addView(floatingView, params)
     }
 
-    private fun openDashboard() {
-        if (isDashboardOpen) return
+    private fun setupDashboardLogic() {
+        val btnMinimize = dashboardView.findViewById<ImageButton>(R.id.btn_minimize)
+        val btnScan = dashboardView.findViewById<Button>(R.id.btn_scan)
 
-        // Remove icon
-        if (floatingView != null) windowManager.removeView(floatingView)
-
-        // Add dashboard
-        val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            WindowManager.LayoutParams.TYPE_PHONE
+        btnMinimize.setOnClickListener {
+            showIcon()
         }
-
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            layoutType,
-            WindowManager.LayoutParams.FLAG_DIM_BEHIND, // Focusable implicitly if not FLAG_NOT_FOCUSABLE? No, we need input
-            PixelFormat.TRANSLUCENT
-        )
-        // Ensure input is possible
-        // FLAG_NOT_TOUCH_MODAL allow outside clicks to pass through?
-        // We want to type in EditText, so we need focus.
-
-        params.dimAmount = 0.5f
-        params.gravity = Gravity.CENTER
-
-        dashboardView = LayoutInflater.from(this).inflate(R.layout.layout_overlay_dashboard, null)
-
-        val targetText = dashboardView!!.findViewById<TextView>(R.id.text_target_name)
-        targetText.text = "Attached to: $targetName ($targetPid)"
-
-        val btnHide = dashboardView!!.findViewById<Button>(R.id.btn_hide)
-        btnHide.setOnClickListener {
-            closeDashboard()
-        }
-
-        val btnClose = dashboardView!!.findViewById<Button>(R.id.btn_close)
-        btnClose.setOnClickListener {
-            stopSelf()
-        }
-
-        val btnScan = dashboardView!!.findViewById<Button>(R.id.btn_scan)
-        val inputSearch = dashboardView!!.findViewById<EditText>(R.id.input_search)
-        val recycler = dashboardView!!.findViewById<RecyclerView>(R.id.recycler_results)
-        recycler.layoutManager = LinearLayoutManager(this)
 
         btnScan.setOnClickListener {
-             val query = inputSearch.text.toString()
-             performScan(query, recycler)
+            // TRIGGER THE NATIVE SCANNER HERE
+            Toast.makeText(this, "Scanning PID $targetPid...", Toast.LENGTH_SHORT).show()
+            // NativeScanner.readMemory(...)
         }
-
-        windowManager.addView(dashboardView, params)
-        isDashboardOpen = true
     }
 
-    private fun closeDashboard() {
-        if (!isDashboardOpen) return
+    private fun showDashboard() {
+        if (isDashboardVisible) return
 
-        if (dashboardView != null) windowManager.removeView(dashboardView)
-        setupFloatingIcon() // Re-add icon
-        isDashboardOpen = false
+        // Remove Icon, Add Dashboard
+        windowManager.removeView(iconView)
+
+        // Important: Dashboard must be Focusable for EditText to work
+        // We do NOT add FLAG_NOT_FOCUSABLE here
+        windowManager.addView(dashboardView, dashboardParams)
+
+        isDashboardVisible = true
     }
 
-    private fun performScan(query: String, recycler: RecyclerView) {
-        // Temporary scan logic as requested
-        CoroutineScope(Dispatchers.IO).launch {
-             // For now, just test the Native Read function on a dummy address or existing logic
-             // We'll simulate finding results
+    private fun showIcon() {
+        if (!isDashboardVisible) return
 
-             // Real implementation would look like:
-             // val results = NativeScanner.search(targetPid, query)
+        // Remove Dashboard, Add Icon
+        windowManager.removeView(dashboardView)
+        windowManager.addView(iconView, iconParams)
 
-             // Test Native Read (Phase 2 feature)
-             // Arbitrary address just to check JNI call doesn't crash
-             try {
-                NativeScanner.readMemory(targetPid, 0x123456, 4)
-             } catch (e: Exception) {
-                 e.printStackTrace()
-             }
-
-             val dummyResults = listOf(
-                 Pair("0x12345678", query),
-                 Pair("0x87654321", query)
-             )
-
-             withContext(Dispatchers.Main) {
-                 recycler.adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-                     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
-                         val view = LayoutInflater.from(parent.context).inflate(R.layout.row_memory_result, parent, false)
-                         return object : RecyclerView.ViewHolder(view) {}
-                     }
-
-                     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-                         val addrView = holder.itemView.findViewById<TextView>(R.id.text_address)
-                         val valView = holder.itemView.findViewById<TextView>(R.id.text_value)
-                         addrView.text = dummyResults[position].first
-                         valView.text = dummyResults[position].second
-                     }
-
-                     override fun getItemCount() = dummyResults.size
-                 }
-             }
-        }
+        isDashboardVisible = false
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        if (floatingView != null && !isDashboardOpen) windowManager.removeView(floatingView)
-        if (dashboardView != null && isDashboardOpen) windowManager.removeView(dashboardView)
+        if (isDashboardVisible) windowManager.removeView(dashboardView)
+        else windowManager.removeView(iconView)
     }
 }

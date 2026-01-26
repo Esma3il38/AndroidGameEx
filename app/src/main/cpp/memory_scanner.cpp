@@ -6,11 +6,16 @@
 #include <sys/uio.h>
 #include <unistd.h>
 #include <android/log.h>
+#include <cstring>
+#include <cstdint>
+#include <mutex>
+#include <algorithm>
+#include <cinttypes>
 
 // Define the structure of a memory region
 struct MemoryRegion {
-    long startAddress;
-    long endAddress;
+    uintptr_t startAddress;
+    uintptr_t endAddress;
     bool isReadable;
     bool isWritable;
     bool isExecutable;
@@ -18,7 +23,8 @@ struct MemoryRegion {
 
 // Global buffer to store found results (Address List)
 // In a real app, this might be stored in a temporary file to save RAM.
-std::vector<long> searchResults;
+std::vector<jlong> searchResults;
+std::mutex searchResultsMutex;
 
 std::vector<MemoryRegion> getMemoryRegions(int pid) {
     std::vector<MemoryRegion> regions;
@@ -40,8 +46,11 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
 
         // Parse line: 7b3d8000-7b3da000 rw-p 00000000 00:00 0 ...
         // Using sscanf is fast and efficient for this standard format
-        sscanf(line.c_str(), "%lx-%lx %4s %*s %s %ld %s",
-               &region.startAddress, &region.endAddress, permissions, dev, &inode, path);
+        // Check return value to ensure correct parsing
+        if (sscanf(line.c_str(), "%" SCNxPTR "-%" SCNxPTR " %4s %*s %s %ld %s",
+               &region.startAddress, &region.endAddress, permissions, dev, &inode, path) != 6) {
+            continue;
+        }
 
         region.isReadable = (permissions[0] == 'r');
         region.isWritable = (permissions[1] == 'w');
@@ -68,8 +77,8 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
         jint pid,
         jint valueToFind) { // Currently supports Int (DWORD) only
 
-    // 1. Clear previous results
-    searchResults.clear();
+    // Use a local vector to accumulate results to avoid locking during the scan
+    std::vector<jlong> localResults;
 
     // 2. Get Valid Regions
     std::vector<MemoryRegion> regions = getMemoryRegions(pid);
@@ -82,11 +91,11 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
 
     // 4. Iterate over every region
     for (const auto& region : regions) {
-        long currentAddr = region.startAddress;
+        uintptr_t currentAddr = region.startAddress;
 
         while (currentAddr < region.endAddress) {
-            long remaining = region.endAddress - currentAddr;
-            size_t readSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : remaining;
+            uintptr_t remaining = region.endAddress - currentAddr;
+            size_t readSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : (size_t)remaining;
 
             // Prepare iovec for process_vm_readv
             struct iovec local_iov = {buffer.data(), readSize};
@@ -94,19 +103,18 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
 
             ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
 
-            if (bytesRead > 0) {
-                if (bytesRead < static_cast<ssize_t>(sizeof(int))) {
-                    currentAddr += readSize;
-                    continue;
-                }
+            if (bytesRead >= 4) {
                 // Scan the buffer (Client-side scan)
-                // We stop at bytesRead - 4 to avoid reading past the buffer end for a 4-byte int
-                for (size_t i = 0; i + sizeof(int) <= static_cast<size_t>(bytesRead); i += 4) {
+                // We stop at i + 4 <= bytesRead to avoid reading past the buffer end for a 4-byte int
+                size_t limit = (size_t)bytesRead;
+                for (size_t i = 0; i + 4 <= limit; i += 4) {
+                    // Safe unaligned access using memcpy
                     int val;
-                    std::memcpy(&val, &buffer[i], sizeof(val));
+                    std::memcpy(&val, &buffer[i], sizeof(int));
+
                     if (val == valueToFind) {
                         // FOUND! Save the absolute address
-                        searchResults.push_back(currentAddr + i);
+                        localResults.push_back((jlong)(currentAddr + i));
                         matchCount++;
 
                         // Safety Limit: Prevent memory overflow if 1M+ results
@@ -120,6 +128,12 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
         if (matchCount >= 100000) break;
     }
 
+    // Update global searchResults safely
+    {
+        std::lock_guard<std::mutex> lock(searchResultsMutex);
+        searchResults = std::move(localResults);
+    }
+
     __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Search Complete. Found: %d", matchCount);
     return matchCount;
 }
@@ -130,14 +144,15 @@ Java_com_techted89_gameex_NativeScanner_getResults(
         jobject /* this */,
         jint limit) {
 
-    int count = 0;
-    if (limit > 0) {
-        count = (searchResults.size() > static_cast<size_t>(limit))
-            ? limit
-            : static_cast<int>(searchResults.size());
-    }
+    std::lock_guard<std::mutex> lock(searchResultsMutex);
+
+    size_t safeLimit = (limit < 0) ? 0 : (size_t)limit;
+    size_t count = std::min(searchResults.size(), safeLimit);
+
     jlongArray resultArr = env->NewLongArray(count);
-    env->SetLongArrayRegion(resultArr, 0, count, (jlong*)searchResults.data());
+    if (count > 0) {
+        env->SetLongArrayRegion(resultArr, 0, count, searchResults.data());
+    }
 
     return resultArr;
 }
@@ -152,7 +167,7 @@ Java_com_techted89_gameex_NativeScanner_readMemory(
 
     std::vector<uint8_t> buffer(size);
     struct iovec local_iov = {buffer.data(), (size_t)size};
-    struct iovec remote_iov = {(void*)address, (size_t)size};
+    struct iovec remote_iov = {(void*)(uintptr_t)address, (size_t)size};
 
     ssize_t bytes_read = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
 

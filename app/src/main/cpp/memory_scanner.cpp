@@ -141,16 +141,15 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
                         matchCount++;
 
                         // Safety Limit: Prevent memory overflow if 1M+ results
-                        if (matchCount >= 100000) break;
+                        if (matchCount >= 100000) goto search_complete;
                     }
                 }
             }
             currentAddr += readSize;
-            if (matchCount >= 100000) break;
         }
-        if (matchCount >= 100000) break;
     }
 
+search_complete:
     // Update global searchResults safely
     {
         std::lock_guard<std::mutex> lock(searchResultsMutex);
@@ -173,6 +172,10 @@ Java_com_techted89_gameex_NativeScanner_getResults(
     size_t count = std::min(searchResults.size(), safeLimit);
 
     jlongArray resultArr = env->NewLongArray(count);
+    if (resultArr == nullptr) {
+        return nullptr; // OOM or error
+    }
+
     if (count > 0) {
         env->SetLongArrayRegion(resultArr, 0, count, searchResults.data());
     }
@@ -205,6 +208,10 @@ Java_com_techted89_gameex_NativeScanner_readMemory(
     }
 
     jbyteArray result = env->NewByteArray(bytes_read);
+    if (result == nullptr) {
+        return nullptr;
+    }
+
     env->SetByteArrayRegion(result, 0, bytes_read, (jbyte*)buffer.data());
     return result;
 }

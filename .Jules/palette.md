@@ -10,3 +10,6 @@
 ## 2024-05-23 - Empty & Error States
 **Learning:** Empty states prevent 'broken app' perception. Always guide the user when no data is present.
 **Action:** Audit all list views for missing empty states.
+## 2024-05-23 - Modality in Overlays
+**Learning:** Complex overlay tools need clear modes (Tabs) to prevent UI clutter.
+**Action:** When an overlay has >2 primary functions, split them into distinct tabs/modes immediately.

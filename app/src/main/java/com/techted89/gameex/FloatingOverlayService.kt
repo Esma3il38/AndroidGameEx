@@ -138,11 +138,25 @@ class FloatingOverlayService : Service() {
 
     private fun setupDashboardLogic() {
         val btnMinimize = dashboardView.findViewById<ImageButton>(R.id.btn_minimize)
-        val btnScan = dashboardView.findViewById<Button>(R.id.btn_scan)
-        val etSearchValue = dashboardView.findViewById<EditText>(R.id.et_search_value)
-        val rvResults = dashboardView.findViewById<RecyclerView>(R.id.rv_results)
-        val layoutEmptyState = dashboardView.findViewById<View>(R.id.layout_empty_state)
-        val progressScan = dashboardView.findViewById<View>(R.id.progress_scan)
+
+        // Tab Buttons
+        val tabScan = dashboardView.findViewById<Button>(R.id.tab_scan)
+        val tabResults = dashboardView.findViewById<Button>(R.id.tab_results)
+        val tabEditor = dashboardView.findViewById<Button>(R.id.tab_editor)
+
+        // Mode Views
+        val viewScan = dashboardView.findViewById<View>(R.id.view_scan)
+        val viewResults = dashboardView.findViewById<View>(R.id.view_results)
+        val viewEditor = dashboardView.findViewById<View>(R.id.view_editor)
+
+        // Scan Mode Elements
+        val btnScan = viewScan.findViewById<Button>(R.id.btn_scan)
+        val etSearchValue = viewScan.findViewById<EditText>(R.id.et_search_value)
+        val progressScan = viewScan.findViewById<View>(R.id.progress_scan)
+
+        // Results Mode Elements
+        val rvResults = viewResults.findViewById<RecyclerView>(R.id.rv_results)
+        val layoutEmptyState = viewResults.findViewById<View>(R.id.layout_empty_state)
 
         // Setup RecyclerView
         rvResults.layoutManager = LinearLayoutManager(this)
@@ -152,6 +166,44 @@ class FloatingOverlayService : Service() {
         // Initial State
         layoutEmptyState.visibility = View.VISIBLE
         rvResults.visibility = View.GONE
+
+        // Tab Switching Logic
+        fun switchTab(mode: String) {
+            // Reset Tabs
+            tabScan.setBackgroundResource(0)
+            tabResults.setBackgroundResource(0)
+            tabEditor.setBackgroundResource(0)
+            tabScan.setTextColor(0xFFFFFFFF.toInt())
+            tabResults.setTextColor(0xFFFFFFFF.toInt())
+            tabEditor.setTextColor(0xFFFFFFFF.toInt())
+
+            // Hide All Views
+            viewScan.visibility = View.GONE
+            viewResults.visibility = View.GONE
+            viewEditor.visibility = View.GONE
+
+            when(mode) {
+                "SCAN" -> {
+                    tabScan.setBackgroundResource(R.drawable.tab_indicator_active)
+                    tabScan.setTextColor(0xFF00E676.toInt())
+                    viewScan.visibility = View.VISIBLE
+                }
+                "RESULTS" -> {
+                    tabResults.setBackgroundResource(R.drawable.tab_indicator_active)
+                    tabResults.setTextColor(0xFF00E676.toInt())
+                    viewResults.visibility = View.VISIBLE
+                }
+                "EDITOR" -> {
+                    tabEditor.setBackgroundResource(R.drawable.tab_indicator_active)
+                    tabEditor.setTextColor(0xFF00E676.toInt())
+                    viewEditor.visibility = View.VISIBLE
+                }
+            }
+        }
+
+        tabScan.setOnClickListener { switchTab("SCAN") }
+        tabResults.setOnClickListener { switchTab("RESULTS") }
+        tabEditor.setOnClickListener { switchTab("EDITOR") }
 
         btnMinimize.setOnClickListener {
             showIcon()
@@ -166,8 +218,6 @@ class FloatingOverlayService : Service() {
 
             // Show Loading
             progressScan.visibility = View.VISIBLE
-            layoutEmptyState.visibility = View.GONE
-            rvResults.visibility = View.GONE
             btnScan.isEnabled = false
 
             // Simulate Async Scan
@@ -189,6 +239,10 @@ class FloatingOverlayService : Service() {
                 // Update UI based on results
                 progressScan.visibility = View.GONE
                 btnScan.isEnabled = true
+
+                // Switch to results tab automatically
+                switchTab("RESULTS")
+
                 if (mockResults.isEmpty()) {
                     layoutEmptyState.visibility = View.VISIBLE
                     rvResults.visibility = View.GONE

@@ -212,7 +212,7 @@ Java_com_techted89_gameex_NativeScanner_getResults(
 
     jlongArray resultArr = env->NewLongArray(count);
     if (resultArr == nullptr) {
-        return nullptr; // OOM or error
+        return env->NewLongArray(0); // Return empty array for consistency
     }
 
     if (count > 0) {

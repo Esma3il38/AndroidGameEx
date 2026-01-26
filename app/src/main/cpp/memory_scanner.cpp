@@ -218,19 +218,6 @@ Java_com_techted89_gameex_NativeScanner_getResults(
     if (count > 0) {
         env->SetLongArrayRegion(resultArr, 0, count, searchResults.data());
     }
-
-    return resultArr;
-}
-
-extern "C" JNIEXPORT jbyteArray JNICALL
-Java_com_techted89_gameex_NativeScanner_readMemory(
-        JNIEnv* env,
-        jobject /* this */,
-        jint pid,
-        jlong address,
-        jint size) {
-    // Validate size: must be positive and not too huge (e.g., limit to 1MB)
-    // This prevents massive allocation attempts and invalid inputs.
     if (size <= 0 || size > 1024 * 1024) {
         return env->NewByteArray(0);
     }
@@ -247,8 +234,7 @@ Java_com_techted89_gameex_NativeScanner_readMemory(
 
     jbyteArray result = env->NewByteArray(bytes_read);
     if (result == nullptr) {
-        // Return empty array instead of nullptr on OOM to be consistent with other error paths
-        return env->NewByteArray(0);
+        return env->NewByteArray(0);  // Return empty array instead of null
     }
 
     env->SetByteArrayRegion(result, 0, bytes_read, (jbyte*)buffer.data());

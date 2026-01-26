@@ -95,12 +95,15 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
             ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
 
             if (bytesRead > 0) {
+                if (bytesRead < static_cast<ssize_t>(sizeof(int))) {
+                    currentAddr += readSize;
+                    continue;
+                }
                 // Scan the buffer (Client-side scan)
                 // We stop at bytesRead - 4 to avoid reading past the buffer end for a 4-byte int
-                for (size_t i = 0; i <= bytesRead - 4; i += 4) {
-                    // Reinterpret bytes as Integer
-                    int val = *reinterpret_cast<int*>(&buffer[i]);
-
+                for (size_t i = 0; i + sizeof(int) <= static_cast<size_t>(bytesRead); i += 4) {
+                    int val;
+                    std::memcpy(&val, &buffer[i], sizeof(val));
                     if (val == valueToFind) {
                         // FOUND! Save the absolute address
                         searchResults.push_back(currentAddr + i);

@@ -92,6 +92,11 @@
                 layout="@layout/view_editor_mode"
                 android:visibility="gone"/>
 
+            <include
+                android:id="@+id/view_script"
+                layout="@layout/view_script_mode"
+                android:visibility="gone"/>
+
         </FrameLayout>
 
     </LinearLayout>

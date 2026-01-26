@@ -26,6 +26,54 @@ struct MemoryRegion {
 std::vector<jlong> searchResults;
 std::mutex searchResultsMutex;
 
+enum SearchType {
+    EXACT,
+    RANGE,
+    FUZZY,
+    ENCRYPTED_XOR
+};
+
+struct SearchCondition {
+    SearchType type = EXACT;
+    int value1 = 0;
+    int value2 = 0; // For range
+    int xorKey = 0; // For encrypted
+};
+
+// Simple parser for "100~150", "100X8", "100"
+SearchCondition parseSearchQuery(const std::string& query) {
+    SearchCondition cond;
+
+    // Check for Range (~)
+    size_t tildePos = query.find('~');
+    if (tildePos != std::string::npos) {
+        cond.type = RANGE;
+        try {
+            cond.value1 = std::stoi(query.substr(0, tildePos));
+            cond.value2 = std::stoi(query.substr(tildePos + 1));
+        } catch (...) { cond.type = EXACT; }
+        return cond;
+    }
+
+    // Check for XOR (X)
+    size_t xPos = query.find('X');
+    if (xPos != std::string::npos) {
+        cond.type = ENCRYPTED_XOR;
+        try {
+            cond.value1 = std::stoi(query.substr(0, xPos));
+            cond.xorKey = std::stoi(query.substr(xPos + 1));
+        } catch (...) { cond.type = EXACT; }
+        return cond;
+    }
+
+    // Default Exact
+    cond.type = EXACT;
+    try {
+        cond.value1 = std::stoi(query);
+    } catch (...) { cond.value1 = 0; }
+    return cond;
+}
+
 /**
  * @brief Collects readable and writable memory regions for a given process.
  *
@@ -120,49 +168,73 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
         JNIEnv* env,
         jobject /* this */,
         jint pid,
-        jint valueToFind) { // Currently supports Int (DWORD) only
+        jint valueToFind) {
+    // Legacy support: convert int to string and use the string-based search
+    std::string query = std::to_string(valueToFind);
+    jstring queryString = env->NewStringUTF(query.c_str());
 
-    // Use a local vector to accumulate results to avoid locking during the scan
+    jint result = Java_com_techted89_gameex_NativeScanner_searchMemoryString(env, nullptr, pid, queryString);
+
+    env->DeleteLocalRef(queryString);
+    return result;
+}
+
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_searchMemoryString(
+        JNIEnv* env,
+        jobject /* this */,
+        jint pid,
+        jstring queryString) {
+
+    const char* queryCStr = env->GetStringUTFChars(queryString, nullptr);
+    std::string query(queryCStr);
+    env->ReleaseStringUTFChars(queryString, queryCStr);
+
+    SearchCondition cond = parseSearchQuery(query);
+
     std::vector<jlong> localResults;
-
-    // 2. Get Valid Regions
     std::vector<MemoryRegion> regions = getMemoryRegions(pid);
 
-    // 3. Buffer for Chunk Reading (e.g., 4KB chunk)
     const size_t CHUNK_SIZE = 4096;
     std::vector<uint8_t> buffer(CHUNK_SIZE);
-
     int matchCount = 0;
 
-    // 4. Iterate over every region
     for (const auto& region : regions) {
         uintptr_t currentAddr = region.startAddress;
-
         while (currentAddr < region.endAddress) {
             uintptr_t remaining = region.endAddress - currentAddr;
             size_t readSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : (size_t)remaining;
 
-            // Prepare iovec for process_vm_readv
             struct iovec local_iov = {buffer.data(), readSize};
             struct iovec remote_iov = {(void*)currentAddr, readSize};
 
             ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
 
             if (bytesRead >= 4) {
-                // Scan the buffer (Client-side scan)
-                // We stop at i + 4 <= bytesRead to avoid reading past the buffer end for a 4-byte int
                 size_t limit = (size_t)bytesRead;
                 for (size_t i = 0; i + 4 <= limit; i += 4) {
-                    // Safe unaligned access using memcpy
                     int val;
                     std::memcpy(&val, &buffer[i], sizeof(int));
 
-                    if (val == valueToFind) {
-                        // FOUND! Save the absolute address
+                    bool match = false;
+                    switch (cond.type) {
+                        case EXACT:
+                            match = (val == cond.value1);
+                            break;
+                        case RANGE:
+                            match = (val >= cond.value1 && val <= cond.value2);
+                            break;
+                        case ENCRYPTED_XOR:
+                            match = ((val ^ cond.xorKey) == cond.value1);
+                            break;
+                        default:
+                            break;
+                    }
+
+                    if (match) {
                         localResults.push_back((jlong)(currentAddr + i));
                         matchCount++;
-
-                        // Safety Limit: Prevent memory overflow if 1M+ results
                         if (matchCount >= 100000) goto search_complete;
                     }
                 }
@@ -172,14 +244,25 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
     }
 
 search_complete:
-    // Update global searchResults safely
     {
         std::lock_guard<std::mutex> lock(searchResultsMutex);
         searchResults = std::move(localResults);
     }
-
-    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Search Complete. Found: %d", matchCount);
     return matchCount;
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
+        JNIEnv* env,
+        jobject,
+        jint pid,
+        jstring dumpPath) {
+    // Placeholder: In a real implementation, dump process memory to file
+    // for subsequent comparison.
+    // For now, we just clear results to simulate a "Wait for change" state.
+    std::lock_guard<std::mutex> lock(searchResultsMutex);
+    searchResults.clear();
 }
 
 extern "C" /**

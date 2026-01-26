@@ -143,11 +143,13 @@ class FloatingOverlayService : Service() {
         val tabScan = dashboardView.findViewById<Button>(R.id.tab_scan)
         val tabResults = dashboardView.findViewById<Button>(R.id.tab_results)
         val tabEditor = dashboardView.findViewById<Button>(R.id.tab_editor)
+        val tabScript = dashboardView.findViewById<Button>(R.id.tab_script)
 
         // Mode Views
         val viewScan = dashboardView.findViewById<View>(R.id.view_scan)
         val viewResults = dashboardView.findViewById<View>(R.id.view_results)
         val viewEditor = dashboardView.findViewById<View>(R.id.view_editor)
+        val viewScript = dashboardView.findViewById<View>(R.id.view_script)
 
         // Scan Mode Elements
         val btnScan = viewScan.findViewById<Button>(R.id.btn_scan)
@@ -175,6 +177,11 @@ class FloatingOverlayService : Service() {
         val btnHook = viewEditor.findViewById<Button>(R.id.btn_hook)
         val tvModulesList = viewEditor.findViewById<android.widget.TextView>(R.id.tv_modules_list)
 
+        // Script Mode Elements
+        val etScriptInput = viewScript.findViewById<EditText>(R.id.et_script_input)
+        val btnExecuteScript = viewScript.findViewById<Button>(R.id.btn_execute_script)
+        val tvScriptOutput = viewScript.findViewById<android.widget.TextView>(R.id.tv_script_output)
+
         // Initial State
         layoutEmptyState.visibility = View.VISIBLE
         rvResults.visibility = View.GONE
@@ -185,14 +192,17 @@ class FloatingOverlayService : Service() {
             tabScan.setBackgroundResource(0)
             tabResults.setBackgroundResource(0)
             tabEditor.setBackgroundResource(0)
+            tabScript.setBackgroundResource(0)
             tabScan.setTextColor(0xFFFFFFFF.toInt())
             tabResults.setTextColor(0xFFFFFFFF.toInt())
             tabEditor.setTextColor(0xFFFFFFFF.toInt())
+            tabScript.setTextColor(0xFFFFFFFF.toInt())
 
             // Hide All Views
             viewScan.visibility = View.GONE
             viewResults.visibility = View.GONE
             viewEditor.visibility = View.GONE
+            viewScript.visibility = View.GONE
 
             when(mode) {
                 "SCAN" -> {
@@ -217,12 +227,18 @@ class FloatingOverlayService : Service() {
                     // Mocking for UI demo:
                     tvModulesList.text = "libgame.so (0x74220000)\nlibunity.so (0x78002000)\nlibc.so (0x7B000000)"
                 }
+                "SCRIPT" -> {
+                    tabScript.setBackgroundResource(R.drawable.tab_indicator_active)
+                    tabScript.setTextColor(0xFF00E676.toInt())
+                    viewScript.visibility = View.VISIBLE
+                }
             }
         }
 
         tabScan.setOnClickListener { switchTab("SCAN") }
         tabResults.setOnClickListener { switchTab("RESULTS") }
         tabEditor.setOnClickListener { switchTab("EDITOR") }
+        tabScript.setOnClickListener { switchTab("SCRIPT") }
 
         btnMinimize.setOnClickListener {
             showIcon()
@@ -302,6 +318,12 @@ class FloatingOverlayService : Service() {
 
         btnHook.setOnClickListener {
              Toast.makeText(this, "Hooking functions...", Toast.LENGTH_SHORT).show()
+        }
+
+        btnExecuteScript.setOnClickListener {
+            val script = etScriptInput.text.toString()
+            val output = com.techted89.gameex.scripting.GameGuardianAPI.executeScript(script)
+            tvScriptOutput.text = "Output:\n$output"
         }
 
         etSearchValue.setOnEditorActionListener { _, actionId, _ ->

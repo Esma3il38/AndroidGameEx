@@ -25,6 +25,16 @@ external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
     external fun searchMemory(pid: Int, value: Int): Int
 
     /**
+     * Searches memory using a query string (e.g., "100~200" for range, "100X8" for XOR).
+     */
+    external fun searchMemoryString(pid: Int, query: String): Int
+
+    /**
+     * Starts a fuzzy scan by dumping current memory snapshot.
+     */
+    external fun startFuzzyScan(pid: Int, dumpPath: String)
+
+    /**
      * Filters the current search results, keeping only those that match the new value.
      *
      * @param pid The target process ID.

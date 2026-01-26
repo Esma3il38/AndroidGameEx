@@ -19,3 +19,6 @@
 ## 2024-05-23 - Data Density
 **Learning:** Tools for power users (like memory scanners) benefit from dense, high-information UIs (Chips, Checkboxes) rather than overly simplified forms.
 **Action:** Use Chips and horizontal scrolling for option-dense configurations.
+## 2024-05-23 - Advanced Features Integration
+**Learning:** Implementing advanced features (Scripting, Advanced Search) requires a layered approach: Core Engine (C++) -> Native Interface (JNI) -> API Layer (Kotlin) -> UI.
+**Action:** When adding complex engine features, first define the API contract in the Native Interface.

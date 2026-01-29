@@ -6,17 +6,26 @@
 #include <iomanip>
 #include <cstdio>
 
-// Mock Lua Opcode Map for demo purposes
-// Real implementation would need full Lua 5.2/5.3 opcode table
+// Lua 5.3 Opcode Map
 const char* lua_opnames[] = {
     "MOVE", "LOADK", "LOADKX", "LOADBOOL", "LOADNIL", "GETUPVAL",
     "GETTABUP", "GETTABLE", "SETTABUP", "SETUPVAL", "SETTABLE",
-    "NEWTABLE", "SELF", "ADD", "SUB", "MUL", "DIV", "MOD", "POW",
-    "UNM", "NOT", "LEN", "CONCAT", "JMP", "EQ", "LT", "LE", "TEST",
-    "TESTSET", "CALL", "TAILCALL", "RETURN", "FORLOOP", "FORPREP",
-    "TFORCALL", "TFORLOOP", "SETLIST", "CLOSURE", "VARARG", "EXTRAARG",
-    NULL
+    "NEWTABLE", "SELF", "ADD", "SUB", "MUL", "MOD", "POW", "DIV",
+    "IDIV", "BAND", "BOR", "BXOR", "SHL", "SHR",
+    "UNM", "BNOT", "NOT", "LEN", "CONCAT", "JMP", "EQ", "LT", "LE",
+    "TEST", "TESTSET", "CALL", "TAILCALL", "RETURN", "FORLOOP",
+    "FORPREP", "TFORCALL", "TFORLOOP", "SETLIST", "CLOSURE", "VARARG",
+    "EXTRAARG", NULL
 };
+
+// Basic structure of a Lua 5.3 Bytecode Instruction (32-bit)
+// OPCODE: 6 bits, A: 8 bits, B: 9 bits, C: 9 bits, Ax: 26 bits, Bx: 18 bits, sBx: 18 bits
+#define GET_OPCODE(i)   ((i) & 0x3F)
+#define GETARG_A(i)     (((i) >> 6) & 0xFF)
+#define GETARG_B(i)     (((i) >> 23) & 0x1FF)
+#define GETARG_C(i)     (((i) >> 14) & 0x1FF)
+#define GETARG_Bx(i)    (((i) >> 14) & 0x3FFFF)
+#define GETARG_sBx(i)   (GETARG_Bx(i) - 131071)
 
 extern "C"
 JNIEXPORT void JNICALL
@@ -26,26 +35,52 @@ Java_com_techted89_gameex_NativeScanner_disassembleScript(
         jstring inPath,
         jstring outPath) {
 
-    // Stub implementation: "Disassemble" by creating a fake .asm file
-    // Real implementation requires parsing the Lua bytecode header and instructions.
-
     const char* inC = env->GetStringUTFChars(inPath, nullptr);
     const char* outC = env->GetStringUTFChars(outPath, nullptr);
 
-    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Disassembling %s to %s", inC, outC);
+    FILE* fIn = fopen(inC, "rb");
+    FILE* fOut = fopen(outC, "w");
 
-    // Create mock output
-    FILE* f = fopen(outC, "w");
-    if (f) {
-        fprintf(f, ".header\n");
-        fprintf(f, "; Mock Disassembly of Lua 5.2 Bytecode\n");
-        fprintf(f, ".params 0 0 2 0\n");
-        fprintf(f, ".source \"mock_script.lua\"\n");
-        fprintf(f, "LOADK v0 \"Hello World\" ; [0]\n");
-        fprintf(f, "GETTABUP v1 v0 \"print\" ; [1]\n");
-        fprintf(f, "CALL v1 2 1\n");
-        fprintf(f, "RETURN v0 1\n");
-        fclose(f);
+    if (fIn && fOut) {
+        // 1. Check Header (Lua 5.3 Signature)
+        unsigned char header[4];
+        fread(header, 1, 4, fIn);
+
+        if (header[0] == 0x1B && header[1] == 'L' && header[2] == 'u' && header[3] == 'a') {
+            fprintf(fOut, ".header\n; Lua Binary Chunk\n");
+
+            // Skip Version, Format, Data, Int, SizeT, Instruction, Integer, Number (approx 30 bytes for 64-bit)
+            fseek(fIn, 30, SEEK_CUR); // Skipping header for this lite parser
+
+            // Read Instructions (Naive assumption: directly following header)
+            // In reality, there are prototypes, constants, etc.
+            // This loop just tries to decode the next bytes as instructions for demonstration
+
+            uint32_t instruction;
+            int pc = 0;
+            while (fread(&instruction, sizeof(uint32_t), 1, fIn) == 1) {
+                int op = GET_OPCODE(instruction);
+                int a = GETARG_A(instruction);
+
+                if (op < 47) { // Valid opcode range for our array
+                    fprintf(fOut, "[%04d] %-10s %d", pc, lua_opnames[op], a);
+
+                    // Simple decoding of operands based on opcode type would go here
+                    // For "Lite" implementation, we dump raw operands
+                    int b = GETARG_B(instruction);
+                    int c = GETARG_C(instruction);
+                    fprintf(fOut, " %d %d\n", b, c);
+                } else {
+                    fprintf(fOut, "[%04d] UNKNOWN_OP %d\n", pc, op);
+                }
+                pc++;
+            }
+        } else {
+            fprintf(fOut, "; Error: Invalid Lua Signature\n");
+        }
+
+        fclose(fIn);
+        fclose(fOut);
     }
 
     env->ReleaseStringUTFChars(inPath, inC);

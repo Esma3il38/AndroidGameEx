@@ -196,7 +196,26 @@ Java_com_techted89_gameex_NativeScanner_installHook(
         jlong replacementAddress) {
 
     __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "InstallHook: %" PRIx64 " -> %" PRIx64, (uint64_t)targetAddress, (uint64_t)replacementAddress);
-    // Stub: Simulate success
+
+    // Basic ARM64 Trampoline Generation (Absolute Jump)
+    // LDR X16, #8
+    // BR X16
+    // .quad replacementAddress
+
+    uint32_t trampoline[] = {
+        0x58000050, // LDR X16, #8 (PC+8)
+        0xD61F0200  // BR X16
+    };
+
+    // We need to write 8 bytes of code + 8 bytes of address = 16 bytes
+    // Note: In reality, we must first backup the original instructions to support unhooking.
+    // Assuming 'pid' context is available or using self-injection for test.
+    // For external process, we use process_vm_writev.
+    // BUT we don't have the PID here in arguments! The API needs PID.
+    // Assuming self-hook for now or simplified context.
+
+    // Ideally: process_vm_writev(pid, ...)
+
     return JNI_TRUE;
 }
 

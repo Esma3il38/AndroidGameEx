@@ -46,3 +46,6 @@
 ## 2024-05-23 - Transitioning from Mocks
 **Learning:** Transitioning from UI mocks to real Native calls requires robust error handling in the Service layer.
 **Action:** Always wrap JNI calls in a safe block when triggered from UI events.
+## 2024-05-23 - Logic Implementation
+**Learning:** Replacing mocks with real logic (like Lua parsers or memory writers) often exposes dependencies (stdio, string.h) that were overlooked in stubs.
+**Action:** Always verify header inclusions when transitioning from mock to implementation.

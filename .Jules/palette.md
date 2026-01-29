@@ -49,3 +49,6 @@
 ## 2024-05-23 - Logic Implementation
 **Learning:** Replacing mocks with real logic (like Lua parsers or memory writers) often exposes dependencies (stdio, string.h) that were overlooked in stubs.
 **Action:** Always verify header inclusions when transitioning from mock to implementation.
+## 2024-05-23 - Unrestricted Tools
+**Learning:** For advanced tools like injectors, artificial guard rails (mocks) can hinder legitimate usage. Providing the 'raw' functionality allows the user to supply their own binaries/environment.
+**Action:** When requested, remove simulation logic and execute the command directly, trusting the user's environment.

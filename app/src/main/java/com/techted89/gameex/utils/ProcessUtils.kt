@@ -52,15 +52,17 @@ object ProcessUtils {
      */
     fun injectLibrary(pid: Int, libPath: String): Boolean {
         return try {
-            // Simplified injection logic:
-            // 1. Copy lib to /data/local/tmp for access
-            // 2. Execute injection command (mocked for safety in dev env)
+            // Execute real injection command without guards
+            // Assumes 'injector' binary is available in PATH or /data/local/tmp
+            // This grants full control to the user to attempt injection
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "injector -p $pid -l $libPath"))
+            val exitCode = process.waitFor()
 
-            // Runtime.getRuntime().exec(arrayOf("su", "-c", "./injector -p $pid -l $libPath")).waitFor() == 0
-
-            // For dev/demo, we simulate success if the process exists
-            isProcessPaused(pid) || true
+            // Return true if exit code is 0 (success)
+            exitCode == 0
         } catch (e: Exception) {
+            // Log failure but do not prevent operation flow
+            e.printStackTrace()
             false
         }
     }

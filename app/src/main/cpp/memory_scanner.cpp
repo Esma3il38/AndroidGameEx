@@ -168,35 +168,17 @@ extern "C" /**
 JNIEXPORT jint JNICALL
 Java_com_techted89_gameex_NativeScanner_searchMemory(
         JNIEnv* env,
-        jobject /* this */,
+        jobject thiz,
         jint pid,
         jint valueToFind) {
-    // Legacy support: convert int to string and use the string-based search
     std::string query = std::to_string(valueToFind);
     jstring queryString = env->NewStringUTF(query.c_str());
-
-    // We need to call the implementation function, but JNIEXPORT functions aren't easily callable directly
-    // if they rely on JNIEnv context that might be subtle. However, here it is just a wrapper.
-    // To avoid linker issues or signature mismatches, it's safer to extract the logic to a common C++ helper
-    // or just duplicate the JNI call structure if we can't easily refactor now.
-    // But wait, the previous patch had this code and the review said "queryString and result are not declared".
-    // Looking at the previous patch in memory, they ARE declared:
-    // jstring queryString = ...; jint result = ...;
-    // The reviewer might be seeing a diff artifact or I made a typo I can't see?
-    // Ah, the issue might be that I'm calling Java_..._searchMemoryString directly which is a C function,
-    // but maybe the declaration isn't visible yet or the linker is unhappy.
-    // A better approach is to just call the C++ helper directly if I separate it,
-    // OR just use JNI CallMethod if I wanted to be "pure" Java, but this is C++.
-    // Let's just implement the logic here directly using the parser helper to be safe and avoid recursion/linking oddities.
-
-    SearchCondition cond = parseSearchQuery(query);
-    // ... copy paste logic or refactor? Refactor is better.
-    // Let's forward to searchMemoryString by just ensuring the declaration exists.
-    // Actually, simply declaring the prototype above might fix it if it's an ordering issue.
-    // But since searchMemoryString is defined BELOW this function in the file, that's the problem.
-    // I will move this function to the bottom of the file OR declare prototype.
-
-    return Java_com_techted89_gameex_NativeScanner_searchMemoryString(env, nullptr, pid, queryString);
+    if (queryString == nullptr) {
+        return 0;
+    }
+    jint result = Java_com_techted89_gameex_NativeScanner_searchMemoryString(env, thiz, pid, queryString);
+    env->DeleteLocalRef(queryString);
+    return result;
 }
 
 extern "C" /**
@@ -213,6 +195,12 @@ Java_com_techted89_gameex_NativeScanner_installHook(
         jobject,
         jlong targetAddress,
         jlong replacementAddress) {
+
+    // Basic validation: Check if addresses are plausible (non-zero)
+    if (targetAddress == 0 || replacementAddress == 0) {
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "InstallHook: Invalid address");
+        return JNI_FALSE;
+    }
 
     __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "InstallHook: %" PRIx64 " -> %" PRIx64, (uint64_t)targetAddress, (uint64_t)replacementAddress);
 

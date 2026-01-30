@@ -7,4 +7,6 @@
     <string name="cd_refresh_process_list">Refresh process list</string>
     <string name="cd_process_navigation">Select process</string>
     <string name="cd_copy_value">Copy value</string>
+    <string name="label_speed">Speed:</string>
+    <string name="empty_results">No results found</string>
 </resources>

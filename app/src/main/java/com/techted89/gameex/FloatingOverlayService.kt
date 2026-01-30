@@ -27,7 +27,7 @@ import com.techted89.gameex.utils.ProcessUtils
 
 class FloatingOverlayService : Service() {
 
-    private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
+    private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
     private lateinit var windowManager: WindowManager
     private lateinit var iconView: View
     private lateinit var dashboardView: View
@@ -311,35 +311,31 @@ class FloatingOverlayService : Service() {
 
             // Execute Real Async Scan
             serviceScope.launch(Dispatchers.IO) {
+                var scanError: String? = null
                 val results = try {
                     if (isNext) {
-                        // For Next Scan, we filter existing results using the integer value (stub limitation fix later)
-                        // Note: Native filter currently accepts Int. Advanced filter needs new native method.
-                        // We use best-effort integer parsing for now.
                         val intVal = valueStr.toIntOrNull() ?: 0
                         NativeScanner.filterMemory(targetPid, intVal)
                     } else {
-                        // New Scan using complex query string (Range, XOR, etc)
                         NativeScanner.searchMemoryString(targetPid, valueStr)
                     }
 
-                    // Fetch up to 100 results addresses
                     val addresses = NativeScanner.getResults(100)
 
-                    // Map addresses to displayable MemoryResult objects
-                    // We read the current value from memory to verify validity
                     addresses.map { addr ->
-                        // Read 4 bytes (DWORD default)
                         val bytes = NativeScanner.readMemory(targetPid, addr, 4)
-                        // Simple Hex conversion for display
                         val hexVal = bytes.joinToString("") { "%02X".format(it) }
                         MemoryResult(addr, "$hexVal ($valueStr)")
                     }
                 } catch (e: Exception) {
+                    scanError = e.message
                     emptyList()
                 }
 
                 withContext(Dispatchers.Main) {
+                    if (scanError != null) {
+                        Toast.makeText(this@FloatingOverlayService, "Scan failed: $scanError", Toast.LENGTH_SHORT).show()
+                    }
                     adapter.updateData(results)
 
                     // Update UI based on results

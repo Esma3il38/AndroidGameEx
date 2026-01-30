@@ -46,39 +46,35 @@ Java_com_techted89_gameex_NativeScanner_disassembleScript(
         if (fOut) {
             // 1. Check Header (Lua 5.3 Signature)
             unsigned char header[4];
-            fread(header, 1, 4, fIn);
+            if (fread(header, 1, 4, fIn) == 4) {
+                if (header[0] == 0x1B && header[1] == 'L' && header[2] == 'u' && header[3] == 'a') {
+                    fprintf(fOut, ".header\n; Lua Binary Chunk\n");
 
-            if (header[0] == 0x1B && header[1] == 'L' && header[2] == 'u' && header[3] == 'a') {
-                fprintf(fOut, ".header\n; Lua Binary Chunk\n");
+                    // Skip Version, Format, Data, Int, SizeT, Instruction, Integer, Number (approx 30 bytes for 64-bit)
+                    fseek(fIn, 30, SEEK_CUR); // Skipping header for this lite parser
 
-                // Skip Version, Format, Data, Int, SizeT, Instruction, Integer, Number (approx 30 bytes for 64-bit)
-                fseek(fIn, 30, SEEK_CUR); // Skipping header for this lite parser
+                    uint32_t instruction;
+                    int pc = 0;
+                    while (fread(&instruction, sizeof(uint32_t), 1, fIn) == 1) {
+                        int op = GET_OPCODE(instruction);
+                        int a = GETARG_A(instruction);
 
-                // Read Instructions (Naive assumption: directly following header)
-                // In reality, there are prototypes, constants, etc.
-                // This loop just tries to decode the next bytes as instructions for demonstration
+                        if (op < 47) { // Valid opcode range for our array
+                            fprintf(fOut, "[%04d] %-10s %d", pc, lua_opnames[op], a);
 
-                uint32_t instruction;
-                int pc = 0;
-                while (fread(&instruction, sizeof(uint32_t), 1, fIn) == 1) {
-                    int op = GET_OPCODE(instruction);
-                    int a = GETARG_A(instruction);
-
-                    if (op < 47) { // Valid opcode range for our array
-                        fprintf(fOut, "[%04d] %-10s %d", pc, lua_opnames[op], a);
-
-                        // Simple decoding of operands based on opcode type would go here
-                        // For "Lite" implementation, we dump raw operands
-                        int b = GETARG_B(instruction);
-                        int c = GETARG_C(instruction);
-                        fprintf(fOut, " %d %d\n", b, c);
-                    } else {
-                        fprintf(fOut, "[%04d] UNKNOWN_OP %d\n", pc, op);
+                            int b = GETARG_B(instruction);
+                            int c = GETARG_C(instruction);
+                            fprintf(fOut, " %d %d\n", b, c);
+                        } else {
+                            fprintf(fOut, "[%04d] UNKNOWN_OP %d\n", pc, op);
+                        }
+                        pc++;
                     }
-                    pc++;
+                } else {
+                    fprintf(fOut, "; Error: Invalid Lua Signature\n");
                 }
             } else {
-                fprintf(fOut, "; Error: Invalid Lua Signature\n");
+                fprintf(fOut, "; Error: Failed to read header\n");
             }
             fclose(fOut);
         }

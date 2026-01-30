@@ -52,10 +52,13 @@ object ProcessUtils {
      */
     fun injectLibrary(pid: Int, libPath: String): Boolean {
         return try {
+            // Sanitize libPath to prevent command injection
+            val safeLibPath = libPath.replace("'", "'\"'\"'")
+
             // Execute real injection command without guards
             // Assumes 'injector' binary is available in PATH or /data/local/tmp
             // This grants full control to the user to attempt injection
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "injector -p $pid -l $libPath"))
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "injector -p $pid -l '$safeLibPath'"))
             val exitCode = process.waitFor()
 
             // Return true if exit code is 0 (success)

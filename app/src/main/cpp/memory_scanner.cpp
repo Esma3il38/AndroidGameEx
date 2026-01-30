@@ -20,6 +20,8 @@ struct MemoryRegion {
     bool isReadable;
     bool isWritable;
     bool isExecutable;
+    bool isValid;
+    std::string filename;
 };
 
 // Global buffer to store found results (Address List)
@@ -76,6 +78,82 @@ SearchCondition parseSearchQuery(const std::string& query) {
 }
 
 /**
+ * @brief Checks if a path should be filtered out.
+ *
+ * @param path The path string associated with a memory region.
+ * @return true if the path contains filtered patterns, false otherwise.
+ */
+static bool shouldFilterPath(const std::string& path) {
+    if (path.find("/dev/") != std::string::npos) return true;
+    if (path.find(".so") != std::string::npos) return true;
+    if (path.find(".ttf") != std::string::npos) return true;
+    if (path.find("app_process") != std::string::npos) return true;
+    return false;
+}
+
+/**
+ * @brief Parses a single line from the memory map file.
+ *
+ * @param line The line string to parse.
+ * @return A MemoryRegion struct with parsing results and validity indicator.
+ */
+static MemoryRegion parseMemoryMapLine(const std::string& line) {
+    MemoryRegion region;
+    // Default initialization
+    region.startAddress = 0;
+    region.endAddress = 0;
+    region.isReadable = false;
+    region.isWritable = false;
+    region.isExecutable = false;
+    region.isValid = false;
+    region.filename = "";
+
+    char permissions[5] = {0};
+    char dev[10] = {0}; // Major:Minor
+    long inode = 0;
+    char path[4096] = {0}; // Optional path, large buffer to avoid truncation
+    int pos = 0;
+
+    // Parse line: 7b3d8000-7b3da000 rw-p 00000000 00:00 0 ...
+    // We use %n to see where the fixed fields end, then manually grab the path.
+    // Format: start-end perms offset dev inode
+    int parsed = sscanf(line.c_str(), "%" SCNxPTR "-%" SCNxPTR " %4s %*s %9s %ld%n",
+           &region.startAddress, &region.endAddress, permissions, dev, &inode, &pos);
+
+    if (parsed < 5) {
+        return region;
+    }
+
+    // Extract path if present
+    if (pos > 0 && (size_t)pos < line.length()) {
+        const char* p = line.c_str() + pos;
+        // Skip leading whitespace
+        while (*p == ' ' || *p == '\t') {
+            p++;
+        }
+        // Copy to path buffer
+        strncpy(path, p, sizeof(path) - 1);
+        path[sizeof(path) - 1] = '\0'; // Ensure null-termination
+
+        // Remove trailing newline if present (getline usually handles this, but just in case of oddities)
+        size_t len = strlen(path);
+        if (len > 0 && path[len-1] == '\n') {
+            path[len-1] = '\0';
+        }
+    } else {
+        path[0] = '\0';
+    }
+
+    region.isReadable = (permissions[0] == 'r');
+    region.isWritable = (permissions[1] == 'w');
+    region.isExecutable = (permissions[2] == 'x');
+    region.filename = std::string(path);
+    region.isValid = true;
+
+    return region;
+}
+
+/**
  * @brief Collects readable and writable memory regions for a given process.
  *
  * Parses the target process's memory map and returns a list of MemoryRegion entries
@@ -97,54 +175,16 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
 
     std::string line;
     while (std::getline(mapsFile, line)) {
-        MemoryRegion region;
-        char permissions[5];
-        char dev[10]; // Major:Minor
-        long inode;
-        char path[256] = {0}; // Optional path
-        int pos = 0;
+        MemoryRegion region = parseMemoryMapLine(line);
 
-        // Parse line: 7b3d8000-7b3da000 rw-p 00000000 00:00 0 ...
-        // We use %n to see where the fixed fields end, then manually grab the path.
-        // Format: start-end perms offset dev inode
-        int parsed = sscanf(line.c_str(), "%" SCNxPTR "-%" SCNxPTR " %4s %*s %9s %ld%n",
-               &region.startAddress, &region.endAddress, permissions, dev, &inode, &pos);
-
-        if (parsed < 5) {
+        if (!region.isValid) {
             continue;
         }
-
-        // Extract path if present
-        if (pos > 0 && (size_t)pos < line.length()) {
-            const char* p = line.c_str() + pos;
-            // Skip leading whitespace
-            while (*p == ' ' || *p == '\t') {
-                p++;
-            }
-            // Copy to path buffer
-            strncpy(path, p, sizeof(path) - 1);
-            path[sizeof(path) - 1] = '\0'; // Ensure null-termination
-
-            // Remove trailing newline if present (getline usually handles this, but just in case of oddities)
-            size_t len = strlen(path);
-            if (len > 0 && path[len-1] == '\n') {
-                path[len-1] = '\0';
-            }
-        } else {
-            path[0] = '\0';
-        }
-
-        region.isReadable = (permissions[0] == 'r');
-        region.isWritable = (permissions[1] == 'w');
-        region.isExecutable = (permissions[2] == 'x');
 
         // FILTER: We only want Readable and Writable memory (Data/Heap/Stack)
         // We explicitly skip video drivers (/dev/kgsl) and system fonts to avoid crashes
         if (region.isReadable && region.isWritable) {
-             std::string pathStr(path);
-             if (pathStr.find("/dev/") == std::string::npos &&
-                 pathStr.find(".so") == std::string::npos &&
-                 pathStr.find(".ttf") == std::string::npos) {
+             if (!shouldFilterPath(region.filename)) {
                 regions.push_back(region);
              }
         }
@@ -152,7 +192,9 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
     return regions;
 }
 
-extern "C" /**
+extern "C" {
+
+/**
  * @brief Scans a target process's readable-and-writable memory regions for a 32-bit integer value.
  *
  * Populates the module-global searchResults with absolute addresses of every 4-byte-aligned match
@@ -169,12 +211,9 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
         JNIEnv* env,
         jobject /* this */,
         jint pid,
-        jint valueToFind) {
-    // Legacy support: convert int to string and use the string-based search
-    std::string query = std::to_string(valueToFind);
-    jstring queryString = env->NewStringUTF(query.c_str());
-
-    jint result = Java_com_techted89_gameex_NativeScanner_searchMemoryString(env, nullptr, pid, queryString);
+        jint valueToFind) { // Currently supports Int (DWORD) only
+    // Use a local vector to accumulate results to avoid locking during the scan
+    std::vector<jlong> localResults;
 
     env->DeleteLocalRef(queryString);
     return result;
@@ -345,6 +384,7 @@ Java_com_techted89_gameex_NativeScanner_searchMemoryString(
     const size_t CHUNK_SIZE = 4096;
     std::vector<uint8_t> buffer(CHUNK_SIZE);
     int matchCount = 0;
+    bool searchComplete = false;
 
     for (const auto& region : regions) {
         uintptr_t currentAddr = region.startAddress;
@@ -357,8 +397,21 @@ Java_com_techted89_gameex_NativeScanner_searchMemoryString(
 
             ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
 
+            if (bytesRead <= 0) {
+                // Error reading memory or empty read.
+                // Advance by readSize to skip this chunk and try next,
+                // or just break if we assume the rest of the region is unreadable.
+                // For robustness, we skip this chunk.
+                currentAddr += readSize;
+                continue;
+            }
+
+            // Use actual bytesRead for the limit
             if (bytesRead >= 4) {
                 size_t limit = (size_t)bytesRead;
+
+                // Optimized for 4-byte aligned searches.
+                // Note: This loop increments by 4, skipping unaligned occurrences.
                 for (size_t i = 0; i + 4 <= limit; i += 4) {
                     int val;
                     std::memcpy(&val, &buffer[i], sizeof(int));
@@ -381,15 +434,25 @@ Java_com_techted89_gameex_NativeScanner_searchMemoryString(
                     if (match) {
                         localResults.push_back((jlong)(currentAddr + i));
                         matchCount++;
-                        if (matchCount >= 100000) goto search_complete;
+
+                        // Safety Limit: Prevent memory overflow if 1M+ results
+                        if (matchCount >= 100000) {
+                            searchComplete = true;
+                            break;
+                        }
                     }
                 }
             }
-            currentAddr += readSize;
+            if (searchComplete) break;
+
+            // Advance by the actual amount read to ensure we don't skip data
+            // if we got a partial read, or the full chunk if successful.
+            currentAddr += (size_t)bytesRead;
         }
+        if (searchComplete) break;
     }
 
-search_complete:
+    // Update global searchResults safely
     {
         std::lock_guard<std::mutex> lock(searchResultsMutex);
         searchResults = std::move(localResults);
@@ -412,6 +475,7 @@ Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
 }
 
 extern "C" /**
+/**
  * @brief Create a Java long array populated with found memory addresses.
  *
  * Constructs and returns a Java long array containing up to `limit` addresses
@@ -426,7 +490,6 @@ Java_com_techted89_gameex_NativeScanner_getResults(
         JNIEnv* env,
         jobject /* this */,
         jint limit) {
-
     std::lock_guard<std::mutex> lock(searchResultsMutex);
 
     size_t safeLimit = (limit < 0) ? 0 : (size_t)limit;
@@ -434,7 +497,7 @@ Java_com_techted89_gameex_NativeScanner_getResults(
 
     jlongArray resultArr = env->NewLongArray(count);
     if (resultArr == nullptr) {
-        return nullptr; // OOM or error
+        return env->NewLongArray(0); // Return empty array on error instead of nullptr
     }
 
     if (count > 0) {
@@ -444,7 +507,7 @@ Java_com_techted89_gameex_NativeScanner_getResults(
     return resultArr;
 }
 
-extern "C" /**
+/**
  * @brief Read a block of memory from a target process and return it as a Java byte array.
  *
  * @param pid Target process ID to read memory from.
@@ -478,7 +541,8 @@ Java_com_techted89_gameex_NativeScanner_readMemory(
 
     jbyteArray result = env->NewByteArray(bytes_read);
     if (result == nullptr) {
-        return nullptr;
+        // Return empty array instead of nullptr on OOM to be consistent with other error paths
+        return env->NewByteArray(0);
     }
 
     env->SetByteArrayRegion(result, 0, bytes_read, (jbyte*)buffer.data());
@@ -576,3 +640,4 @@ Java_com_techted89_gameex_NativeScanner_getLoadedModules(
 
     return result;
 }
+} // extern "C"

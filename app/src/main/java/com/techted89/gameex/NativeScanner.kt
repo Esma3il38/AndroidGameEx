@@ -91,10 +91,10 @@ external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
     external fun setSpeed(speed: Double): Boolean
 
     /**
- * Retrieves up to the specified number of addresses discovered by the native scanner.
- *
- * @param limit Maximum number of addresses to return.
- * @return A LongArray of found memory addresses; the array length will be less than or equal to `limit`.
- */
+     * Retrieves up to the specified number of addresses discovered by the native scanner.
+     *
+     * @param limit Maximum number of addresses to return.
+     * @return A LongArray of found memory addresses; the array length will be less than or equal to `limit`.
+     */
     external fun getResults(limit: Int): LongArray
 }

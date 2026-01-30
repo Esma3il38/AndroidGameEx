@@ -31,7 +31,7 @@ class MemoryResultAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = results[position]
-        holder.textAddress.text = "0x%08X".format(item.address)
+        holder.textAddress.text = "0x%X".format(item.address)
         holder.textValue.text = item.value
 
         holder.btnCopy.setOnClickListener {
@@ -46,7 +46,14 @@ class MemoryResultAdapter(
     override fun getItemCount() = results.size
 
     fun updateData(newResults: List<MemoryResult>) {
+        val diffCallback = object : androidx.recyclerview.widget.DiffUtil.Callback() {
+            override fun getOldListSize() = results.size
+            override fun getNewListSize() = newResults.size
+            override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int) = results[oldItemPosition].address == newResults[newItemPosition].address
+            override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int) = results[oldItemPosition] == newResults[newItemPosition]
+        }
+        val diffResult = androidx.recyclerview.widget.DiffUtil.calculateDiff(diffCallback)
         results = newResults
-        notifyDataSetChanged()
+        diffResult.dispatchUpdatesTo(this)
     }
 }

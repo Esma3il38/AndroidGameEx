@@ -13,14 +13,21 @@ import android.widget.ImageButton
 import android.widget.Toast
 import android.view.inputmethod.EditorInfo
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import com.techted89.gameex.utils.ProcessUtils
 
 class FloatingOverlayService : Service() {
 
+    private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
     private lateinit var windowManager: WindowManager
     private lateinit var iconView: View
     private lateinit var dashboardView: View
@@ -200,10 +207,13 @@ class FloatingOverlayService : Service() {
             tabResults.setBackgroundResource(0)
             tabEditor.setBackgroundResource(0)
             tabScript.setBackgroundResource(0)
-            tabScan.setTextColor(0xFFFFFFFF.toInt())
-            tabResults.setTextColor(0xFFFFFFFF.toInt())
-            tabEditor.setTextColor(0xFFFFFFFF.toInt())
-            tabScript.setTextColor(0xFFFFFFFF.toInt())
+            val whiteColor = ContextCompat.getColor(this@FloatingOverlayService, android.R.color.white)
+            val hackerGreenColor = ContextCompat.getColor(this@FloatingOverlayService, R.color.primary_hacker_green)
+
+            tabScan.setTextColor(whiteColor)
+            tabResults.setTextColor(whiteColor)
+            tabEditor.setTextColor(whiteColor)
+            tabScript.setTextColor(whiteColor)
 
             // Hide All Views
             viewScan.visibility = View.GONE
@@ -214,27 +224,27 @@ class FloatingOverlayService : Service() {
             when(mode) {
                 "SCAN" -> {
                     tabScan.setBackgroundResource(R.drawable.tab_indicator_active)
-                    tabScan.setTextColor(0xFF00E676.toInt())
+                    tabScan.setTextColor(hackerGreenColor)
                     viewScan.visibility = View.VISIBLE
                 }
                 "RESULTS" -> {
                     tabResults.setBackgroundResource(R.drawable.tab_indicator_active)
-                    tabResults.setTextColor(0xFF00E676.toInt())
+                    tabResults.setTextColor(hackerGreenColor)
                     viewResults.visibility = View.VISIBLE
                 }
                 "EDITOR" -> {
                     tabEditor.setBackgroundResource(R.drawable.tab_indicator_active)
-                    tabEditor.setTextColor(0xFF00E676.toInt())
+                    tabEditor.setTextColor(hackerGreenColor)
                     viewEditor.visibility = View.VISIBLE
 
                     // Refresh modules list when entering Editor
-                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    serviceScope.launch(Dispatchers.IO) {
                         val modules = try {
                             NativeScanner.getLoadedModules(targetPid).toList()
                         } catch (e: Exception) {
                             listOf("Error loading modules: ${e.message}")
                         }
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        withContext(Dispatchers.Main) {
                             // Reusing MemoryResultAdapter for simplicity since it just shows two texts
                             // In real app, create ModuleAdapter
                             val moduleResults = modules.map { MemoryResult(0, it) }
@@ -245,7 +255,7 @@ class FloatingOverlayService : Service() {
                 }
                 "SCRIPT" -> {
                     tabScript.setBackgroundResource(R.drawable.tab_indicator_active)
-                    tabScript.setTextColor(0xFF00E676.toInt())
+                    tabScript.setTextColor(hackerGreenColor)
                     viewScript.visibility = View.VISIBLE
                 }
             }
@@ -300,7 +310,7 @@ class FloatingOverlayService : Service() {
             btnNextScan.isEnabled = false
 
             // Execute Real Async Scan
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            serviceScope.launch(Dispatchers.IO) {
                 val results = try {
                     if (isNext) {
                         // For Next Scan, we filter existing results using the integer value (stub limitation fix later)
@@ -329,7 +339,7 @@ class FloatingOverlayService : Service() {
                     emptyList()
                 }
 
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     adapter.updateData(results)
 
                     // Update UI based on results
@@ -373,18 +383,19 @@ class FloatingOverlayService : Service() {
         }
 
         btnDisassemble.setOnClickListener {
-            val path = "/sdcard/gameex/script.lua" // Mock path
-            val outPath = "/sdcard/gameex/script.asm"
+            val filesDir = getExternalFilesDir(null)?.absolutePath ?: return@setOnClickListener
+            val path = "$filesDir/script.lua"
+            val outPath = "$filesDir/script.asm"
             Toast.makeText(this, "Disassembling...", Toast.LENGTH_SHORT).show()
             // In real app, write input content to file first
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            serviceScope.launch(Dispatchers.IO) {
                 try {
                     NativeScanner.disassembleScript(path, outPath)
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    withContext(Dispatchers.Main) {
                         tvScriptOutput.text = "Disassembled to $outPath"
                     }
                 } catch (e: Exception) {
-                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                     withContext(Dispatchers.Main) {
                         tvScriptOutput.text = "Error: ${e.message}"
                     }
                 }
@@ -392,17 +403,18 @@ class FloatingOverlayService : Service() {
         }
 
         btnAssemble.setOnClickListener {
-            val path = "/sdcard/gameex/script.asm" // Mock path
-            val outPath = "/sdcard/gameex/script.lua"
+            val filesDir = getExternalFilesDir(null)?.absolutePath ?: return@setOnClickListener
+            val path = "$filesDir/script.asm"
+            val outPath = "$filesDir/script.lua"
             Toast.makeText(this, "Assembling...", Toast.LENGTH_SHORT).show()
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            serviceScope.launch(Dispatchers.IO) {
                 try {
                     NativeScanner.assembleScript(path, outPath)
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    withContext(Dispatchers.Main) {
                         tvScriptOutput.text = "Assembled to $outPath"
                     }
                 } catch (e: Exception) {
-                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                     withContext(Dispatchers.Main) {
                         tvScriptOutput.text = "Error: ${e.message}"
                     }
                 }
@@ -474,6 +486,7 @@ class FloatingOverlayService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        serviceScope.cancel()
         if (isDashboardVisible) windowManager.removeView(dashboardView)
         else windowManager.removeView(iconView)
     }

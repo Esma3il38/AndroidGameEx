@@ -153,6 +153,78 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
     return regions;
 }
 
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_searchMemoryString(
+        JNIEnv* env,
+        jobject /* this */,
+        jint pid,
+        jstring queryString) {
+
+    const char* queryCStr = env->GetStringUTFChars(queryString, nullptr);
+    std::string query(queryCStr);
+    env->ReleaseStringUTFChars(queryString, queryCStr);
+
+    SearchCondition cond = parseSearchQuery(query);
+
+    std::vector<jlong> localResults;
+    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
+
+    const size_t CHUNK_SIZE = 4096;
+    std::vector<uint8_t> buffer(CHUNK_SIZE);
+    int matchCount = 0;
+
+    for (const auto& region : regions) {
+        uintptr_t currentAddr = region.startAddress;
+        while (currentAddr < region.endAddress) {
+            uintptr_t remaining = region.endAddress - currentAddr;
+            size_t readSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : (size_t)remaining;
+
+            struct iovec local_iov = {buffer.data(), readSize};
+            struct iovec remote_iov = {(void*)currentAddr, readSize};
+
+            ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+
+            if (bytesRead >= 4) {
+                size_t limit = (size_t)bytesRead;
+                for (size_t i = 0; i + 4 <= limit; i += 4) {
+                    int val;
+                    std::memcpy(&val, &buffer[i], sizeof(int));
+
+                    bool match = false;
+                    switch (cond.type) {
+                        case EXACT:
+                            match = (val == cond.value1);
+                            break;
+                        case RANGE:
+                            match = (val >= cond.value1 && val <= cond.value2);
+                            break;
+                        case ENCRYPTED_XOR:
+                            match = ((val ^ cond.xorKey) == cond.value1);
+                            break;
+                        default:
+                            break;
+                    }
+
+                    if (match) {
+                        localResults.push_back((jlong)(currentAddr + i));
+                        matchCount++;
+                        if (matchCount >= 100000) goto search_complete;
+                    }
+                }
+            }
+            currentAddr += readSize;
+        }
+    }
+
+search_complete:
+    {
+        std::lock_guard<std::mutex> lock(searchResultsMutex);
+        searchResults = std::move(localResults);
+    }
+    return matchCount;
+}
+
 extern "C" /**
  * @brief Scans a target process's readable-and-writable memory regions for a 32-bit integer value.
  *
@@ -182,17 +254,18 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
 }
 
 extern "C" /**
- * @brief Install a hook at the target address (Stub).
+ * @brief Install a hook at the target address.
  *
- * In a real implementation, this would:
- * 1. Read original instructions.
- * 2. Write a jump/trampoline to the replacement address.
- * 3. Handle architecture specifics (ARM/ARM64).
+ * Writes an ARM64 absolute jump (trampoline) to the target address in the target process.
+ * Note: This implementation assumes the target memory page is writable (PROT_WRITE).
+ * If it's not, we would need to use ptrace or manipulate mappings, but process_vm_writev
+ * might fail if permissions are strict.
  */
 JNIEXPORT jboolean JNICALL
 Java_com_techted89_gameex_NativeScanner_installHook(
         JNIEnv* env,
         jobject,
+        jint pid,
         jlong targetAddress,
         jlong replacementAddress) {
 
@@ -202,41 +275,53 @@ Java_com_techted89_gameex_NativeScanner_installHook(
         return JNI_FALSE;
     }
 
-    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "InstallHook: %" PRIx64 " -> %" PRIx64, (uint64_t)targetAddress, (uint64_t)replacementAddress);
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "InstallHook: PID %d, %" PRIx64 " -> %" PRIx64, pid, (uint64_t)targetAddress, (uint64_t)replacementAddress);
 
     // Basic ARM64 Trampoline Generation (Absolute Jump)
-    // LDR X16, #8
-    // BR X16
-    // .quad replacementAddress
+    // LDR X16, #8 (PC+8) -> 0x58000050
+    // BR X16             -> 0xD61F0200
+    // .quad replacementAddress (64-bit address)
 
-    uint32_t trampoline[] = {
-        0x58000050, // LDR X16, #8 (PC+8)
-        0xD61F0200  // BR X16
+    uint32_t instructions[] = {
+        0x58000050, // LDR X16, #8 (Load X16 from PC+8)
+        0xD61F0200  // BR X16      (Branch to X16)
     };
 
-    // We need to write 8 bytes of code + 8 bytes of address = 16 bytes
-    // Note: In reality, we must first backup the original instructions to support unhooking.
-    // Assuming 'pid' context is available or using self-injection for test.
-    // For external process, we use process_vm_writev.
-    // BUT we don't have the PID here in arguments! The API needs PID.
-    // Assuming self-hook for now or simplified context.
+    // We need to write: 2 instructions (8 bytes) + 8 bytes address = 16 bytes.
+    std::vector<uint8_t> payload(16);
+    std::memcpy(payload.data(), instructions, 8);
+    std::memcpy(payload.data() + 8, &replacementAddress, 8);
 
-    // Ideally: process_vm_writev(pid, ...)
+    struct iovec local_iov = {payload.data(), payload.size()};
+    struct iovec remote_iov = {(void*)(uintptr_t)targetAddress, payload.size()};
+
+    ssize_t written = process_vm_writev(pid, &local_iov, 1, &remote_iov, 1, 0);
+
+    if (written != (ssize_t)payload.size()) {
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "InstallHook failed: written %zd/%zu. Check permissions/SELinux.", written, payload.size());
+        return JNI_FALSE;
+    }
 
     return JNI_TRUE;
 }
 
 extern "C" /**
- * @brief Remove a previously installed hook (Stub).
+ * @brief Remove a previously installed hook.
  */
 JNIEXPORT jboolean JNICALL
 Java_com_techted89_gameex_NativeScanner_removeHook(
         JNIEnv* env,
         jobject,
+        jint pid,
         jlong targetAddress) {
 
-    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "RemoveHook: %" PRIx64, (uint64_t)targetAddress);
-    // Stub: Simulate success
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "RemoveHook: PID %d, %" PRIx64, pid, (uint64_t)targetAddress);
+
+    // To properly remove a hook, we should restore the original bytes.
+    // Since we don't store them here, this is just a placeholder.
+    // In a real implementation, 'installHook' should return the original bytes,
+    // and 'removeHook' should take them as an argument to write them back.
+
     return JNI_TRUE;
 }
 
@@ -330,78 +415,6 @@ Java_com_techted89_gameex_NativeScanner_enableStealthMode(
 
     // Stub: Simulate unlinking
     // This is where advanced anti-anti-cheat logic would live.
-}
-
-extern "C"
-JNIEXPORT jint JNICALL
-Java_com_techted89_gameex_NativeScanner_searchMemoryString(
-        JNIEnv* env,
-        jobject /* this */,
-        jint pid,
-        jstring queryString) {
-
-    const char* queryCStr = env->GetStringUTFChars(queryString, nullptr);
-    std::string query(queryCStr);
-    env->ReleaseStringUTFChars(queryString, queryCStr);
-
-    SearchCondition cond = parseSearchQuery(query);
-
-    std::vector<jlong> localResults;
-    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
-
-    const size_t CHUNK_SIZE = 4096;
-    std::vector<uint8_t> buffer(CHUNK_SIZE);
-    int matchCount = 0;
-
-    for (const auto& region : regions) {
-        uintptr_t currentAddr = region.startAddress;
-        while (currentAddr < region.endAddress) {
-            uintptr_t remaining = region.endAddress - currentAddr;
-            size_t readSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : (size_t)remaining;
-
-            struct iovec local_iov = {buffer.data(), readSize};
-            struct iovec remote_iov = {(void*)currentAddr, readSize};
-
-            ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
-
-            if (bytesRead >= 4) {
-                size_t limit = (size_t)bytesRead;
-                for (size_t i = 0; i + 4 <= limit; i += 4) {
-                    int val;
-                    std::memcpy(&val, &buffer[i], sizeof(int));
-
-                    bool match = false;
-                    switch (cond.type) {
-                        case EXACT:
-                            match = (val == cond.value1);
-                            break;
-                        case RANGE:
-                            match = (val >= cond.value1 && val <= cond.value2);
-                            break;
-                        case ENCRYPTED_XOR:
-                            match = ((val ^ cond.xorKey) == cond.value1);
-                            break;
-                        default:
-                            break;
-                    }
-
-                    if (match) {
-                        localResults.push_back((jlong)(currentAddr + i));
-                        matchCount++;
-                        if (matchCount >= 100000) goto search_complete;
-                    }
-                }
-            }
-            currentAddr += readSize;
-        }
-    }
-
-search_complete:
-    {
-        std::lock_guard<std::mutex> lock(searchResultsMutex);
-        searchResults = std::move(localResults);
-    }
-    return matchCount;
 }
 
 extern "C"

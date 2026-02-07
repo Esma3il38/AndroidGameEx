@@ -36,7 +36,8 @@ class ProcessParserBenchmarkTest {
                          val pid = pidStr.toInt()
                          // Construct ProcessInfo to be fair, assuming it's cheap
                          ProcessInfo(pid, name)
-                     } catch (e: NumberFormatException) {
+                     } catch (_: NumberFormatException) {
+                         // Ignore
                      }
                 }
                 line = reader.readLine()
@@ -52,7 +53,7 @@ class ProcessParserBenchmarkTest {
         println("Fast parsing took: $timeFast ms")
 
         val improvement = timeSlow - timeFast
-        val percentage = (improvement.toDouble() / timeSlow.toDouble()) * 100
+        val percentage = improvement.toDouble() / timeSlow.toDouble() * 100
         println("Improvement: $improvement ms ($percentage%)")
 
         // Assert improvement

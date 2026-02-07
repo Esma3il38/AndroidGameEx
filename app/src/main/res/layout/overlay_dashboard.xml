@@ -17,51 +17,103 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
             <TextView
                 android:id="@+id/tv_target_info"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Target: Minecraft (PID: 1234)"
+                android:text="Target: PID 1234"
                 android:textColor="#FFFFFF"
-                android:textStyle="bold"/>
+                android:textStyle="bold"
+                android:singleLine="true"
+                android:ellipsize="end"/>
+            <ImageButton
+                android:id="@+id/btn_pause_game"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:background="@android:drawable/ic_media_pause"
+                android:backgroundTint="#FFFFFF"
+                android:contentDescription="Pause/Resume Game"
+                android:layout_marginEnd="8dp"/>
+            <ImageButton
+                android:id="@+id/btn_stealth"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:background="@android:drawable/ic_lock_lock"
+                android:backgroundTint="@color/primary_hacker_green"
+                android:contentDescription="Stealth Settings"
+                android:layout_marginEnd="8dp"/>
             <ImageButton
                 android:id="@+id/btn_minimize"
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:background="@android:drawable/ic_menu_close_clear_cancel"
-                android:backgroundTint="#FFFFFF"/>
+                android:backgroundTint="#FFFFFF"
+                android:contentDescription="@string/cd_minimize_overlay"/>
         </LinearLayout>
 
-        <com.google.android.material.textfield.TextInputLayout
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:hint="Value to Search">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/et_search_value"
-                android:layout_width="match_parent"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingBottom="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:inputType="numberSigned"
-                android:textColor="#FFFFFF"/>
-        </com.google.android.material.textfield.TextInputLayout>
+                android:text="Speed:"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:layout_marginEnd="8dp"/>
 
-        <Button
-            android:id="@+id/btn_scan"
+            <ToggleButton
+                android:id="@+id/toggle_speed"
+                android:layout_width="48dp"
+                android:layout_height="32dp"
+                android:textOn="ON"
+                android:textOff="OFF"
+                android:textColor="#000000"
+                android:backgroundTint="@color/primary_hacker_green"
+                android:textSize="10sp"/>
+        </LinearLayout>
+
+        <include
+            android:id="@+id/layout_tabs"
+            layout="@layout/layout_tab_header"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="New Scan"
-            android:backgroundTint="#00E676"
-            android:textColor="#000000"
-            android:layout_marginTop="8dp"/>
+            android:layout_marginBottom="8dp"/>
 
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rv_results"
+        <FrameLayout
+            android:id="@+id/container_content"
             android:layout_width="match_parent"
-            android:layout_height="200dp"
-            android:layout_marginTop="8dp"
-            android:background="#121212"/>
+            android:layout_height="wrap_content">
+
+            <include
+                android:id="@+id/view_scan"
+                layout="@layout/view_scan_mode"
+                android:visibility="visible"/>
+
+            <include
+                android:id="@+id/view_results"
+                layout="@layout/view_results_mode"
+                android:visibility="gone"/>
+
+            <include
+                android:id="@+id/view_editor"
+                layout="@layout/view_editor_mode"
+                android:visibility="gone"/>
+
+            <include
+                android:id="@+id/view_script"
+                layout="@layout/view_script_mode"
+                android:visibility="gone"/>
+
+        </FrameLayout>
 
     </LinearLayout>
 </androidx.cardview.widget.CardView>

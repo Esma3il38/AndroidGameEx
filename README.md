@@ -43,3 +43,6 @@ The project consists of two main components:
 ## Disclaimer
 
 This tool is for educational purposes only. Use it responsibly. The authors are not responsible for any damage or bans resulting from the use of this tool.
+# GameEx
+
+An Android memory editor for Android 15+, serving as an alternative to Game Guardian.

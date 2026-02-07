@@ -10,13 +10,27 @@ import android.os.Build
 import android.os.IBinder
 import android.view.*
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.Toast
+import android.view.inputmethod.EditorInfo
 import androidx.core.app.NotificationCompat
 import kotlin.math.abs
+import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import com.techted89.gameex.utils.ProcessUtils
 
 class FloatingOverlayService : Service() {
 
+    private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
     private lateinit var windowManager: WindowManager
     private lateinit var iconView: View
     private lateinit var dashboardView: View
@@ -60,6 +74,7 @@ class FloatingOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        com.techted89.gameex.scripting.GameGuardianAPI.init(this)
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
         // 1. Inflate Views
@@ -151,16 +166,283 @@ class FloatingOverlayService : Service() {
 
     private fun setupDashboardLogic() {
         val btnMinimize = dashboardView.findViewById<ImageButton>(R.id.btn_minimize)
-        val btnScan = dashboardView.findViewById<Button>(R.id.btn_scan)
+        val btnPauseGame = dashboardView.findViewById<ImageButton>(R.id.btn_pause_game)
+        val btnStealth = dashboardView.findViewById<ImageButton>(R.id.btn_stealth)
+
+        // Tab Buttons
+        val tabScan = dashboardView.findViewById<Button>(R.id.tab_scan)
+        val tabResults = dashboardView.findViewById<Button>(R.id.tab_results)
+        val tabEditor = dashboardView.findViewById<Button>(R.id.tab_editor)
+        val tabScript = dashboardView.findViewById<Button>(R.id.tab_script)
+
+        // Mode Views
+        val viewScan = dashboardView.findViewById<View>(R.id.view_scan)
+        val viewResults = dashboardView.findViewById<View>(R.id.view_results)
+        val viewEditor = dashboardView.findViewById<View>(R.id.view_editor)
+        val viewScript = dashboardView.findViewById<View>(R.id.view_script)
+
+        // Scan Mode Elements
+        val btnScan = viewScan.findViewById<Button>(R.id.btn_scan)
+        val btnNextScan = viewScan.findViewById<Button>(R.id.btn_next_scan)
+        val etSearchValue = viewScan.findViewById<EditText>(R.id.et_search_value)
+        val progressScan = viewScan.findViewById<View>(R.id.progress_scan)
+        val chipGroupType = viewScan.findViewById<com.google.android.material.chip.ChipGroup>(R.id.chip_group_type)
+
+        // Speed Hack
+        val toggleSpeed = dashboardView.findViewById<android.widget.ToggleButton>(R.id.toggle_speed)
+        toggleSpeed.setOnCheckedChangeListener { _, isChecked ->
+            Toast.makeText(this, "Speed Hack: ${if (isChecked) "ON" else "OFF"}", Toast.LENGTH_SHORT).show()
+        }
+
+        // Results Mode Elements
+        val rvResults = viewResults.findViewById<RecyclerView>(R.id.rv_results)
+        val layoutEmptyState = viewResults.findViewById<View>(R.id.layout_empty_state)
+
+        // Setup RecyclerView
+        rvResults.layoutManager = LinearLayoutManager(this)
+        val adapter = MemoryResultAdapter()
+        rvResults.adapter = adapter
+
+        // Editor Mode Elements
+        val btnHook = viewEditor.findViewById<Button>(R.id.btn_hook)
+        val rvModulesList = viewEditor.findViewById<RecyclerView>(R.id.rv_modules_list)
+        rvModulesList.layoutManager = LinearLayoutManager(this)
+
+        // Script Mode Elements
+        val etScriptInput = viewScript.findViewById<EditText>(R.id.et_script_input)
+        val btnExecuteScript = viewScript.findViewById<Button>(R.id.btn_execute_script)
+        val btnDisassemble = viewScript.findViewById<Button>(R.id.btn_disassemble)
+        val btnAssemble = viewScript.findViewById<Button>(R.id.btn_assemble)
+        val tvScriptOutput = viewScript.findViewById<android.widget.TextView>(R.id.tv_script_output)
+
+        // Initial State
+        layoutEmptyState.visibility = View.VISIBLE
+        rvResults.visibility = View.GONE
+
+        // Tab Switching Logic
+        fun switchTab(mode: String) {
+            // Reset Tabs
+            tabScan.setBackgroundResource(0)
+            tabResults.setBackgroundResource(0)
+            tabEditor.setBackgroundResource(0)
+            tabScript.setBackgroundResource(0)
+            val whiteColor = ContextCompat.getColor(this@FloatingOverlayService, android.R.color.white)
+            val hackerGreenColor = ContextCompat.getColor(this@FloatingOverlayService, R.color.primary_hacker_green)
+
+            tabScan.setTextColor(whiteColor)
+            tabResults.setTextColor(whiteColor)
+            tabEditor.setTextColor(whiteColor)
+            tabScript.setTextColor(whiteColor)
+
+            // Hide All Views
+            viewScan.visibility = View.GONE
+            viewResults.visibility = View.GONE
+            viewEditor.visibility = View.GONE
+            viewScript.visibility = View.GONE
+
+            when(mode) {
+                "SCAN" -> {
+                    tabScan.setBackgroundResource(R.drawable.tab_indicator_active)
+                    tabScan.setTextColor(hackerGreenColor)
+                    viewScan.visibility = View.VISIBLE
+                }
+                "RESULTS" -> {
+                    tabResults.setBackgroundResource(R.drawable.tab_indicator_active)
+                    tabResults.setTextColor(hackerGreenColor)
+                    viewResults.visibility = View.VISIBLE
+                }
+                "EDITOR" -> {
+                    tabEditor.setBackgroundResource(R.drawable.tab_indicator_active)
+                    tabEditor.setTextColor(hackerGreenColor)
+                    viewEditor.visibility = View.VISIBLE
+
+                    // Refresh modules list when entering Editor
+                    serviceScope.launch(Dispatchers.IO) {
+                        val modules = try {
+                            NativeScanner.getLoadedModules(targetPid).toList()
+                        } catch (e: Exception) {
+                            listOf("Error loading modules: ${e.message}")
+                        }
+                        withContext(Dispatchers.Main) {
+                            // Reusing MemoryResultAdapter for simplicity since it just shows two texts
+                            // In real app, create ModuleAdapter
+                            val moduleResults = modules.map { MemoryResult(0, it) }
+                            val adapter = MemoryResultAdapter(moduleResults)
+                            rvModulesList.adapter = adapter
+                        }
+                    }
+                }
+                "SCRIPT" -> {
+                    tabScript.setBackgroundResource(R.drawable.tab_indicator_active)
+                    tabScript.setTextColor(hackerGreenColor)
+                    viewScript.visibility = View.VISIBLE
+                }
+            }
+        }
+
+        tabScan.setOnClickListener { switchTab("SCAN") }
+        tabResults.setOnClickListener { switchTab("RESULTS") }
+        tabEditor.setOnClickListener { switchTab("EDITOR") }
+        tabScript.setOnClickListener { switchTab("SCRIPT") }
 
         btnMinimize.setOnClickListener {
             showIcon()
         }
 
+        btnStealth.setOnClickListener {
+            showStealthDialog()
+        }
+
+        btnPauseGame.setOnClickListener {
+            // Toggle Pause/Resume
+            if (ProcessUtils.isProcessPaused(targetPid)) {
+                ProcessUtils.resumeProcess(targetPid)
+                btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_pause)
+                Toast.makeText(this, "Game Resumed", Toast.LENGTH_SHORT).show()
+            } else {
+                ProcessUtils.pauseProcess(targetPid)
+                btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_play)
+                Toast.makeText(this, "Game Paused", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        fun performScan(isNext: Boolean = false) {
+            val valueStr = etSearchValue.text.toString()
+            if (valueStr.isEmpty()) {
+                etSearchValue.error = "Enter a value"
+                return
+            }
+
+            // Get selected type (Mock logic)
+            val selectedType = when (chipGroupType.checkedChipId) {
+                R.id.chip_type_float -> "Float"
+                R.id.chip_type_double -> "Double"
+                R.id.chip_type_byte -> "Byte"
+                else -> "Dword"
+            }
+
+            Toast.makeText(this, "Scanning $selectedType...", Toast.LENGTH_SHORT).show()
+
+            // Show Loading
+            progressScan.visibility = View.VISIBLE
+            btnScan.isEnabled = false
+            btnNextScan.isEnabled = false
+
+            // Execute Real Async Scan
+            serviceScope.launch(Dispatchers.IO) {
+                var scanError: String? = null
+                val results = try {
+                    if (isNext) {
+                        val intVal = valueStr.toIntOrNull() ?: 0
+                        NativeScanner.filterMemory(targetPid, intVal)
+                    } else {
+                        NativeScanner.searchMemoryString(targetPid, valueStr)
+                    }
+
+                    val addresses = NativeScanner.getResults(100)
+
+                    addresses.map { addr ->
+                        val bytes = NativeScanner.readMemory(targetPid, addr, 4)
+                        val hexVal = bytes.joinToString("") { "%02X".format(it) }
+                        MemoryResult(addr, "$hexVal ($valueStr)")
+                    }
+                } catch (e: Exception) {
+                    scanError = e.message
+                    emptyList()
+                }
+
+                withContext(Dispatchers.Main) {
+                    if (scanError != null) {
+                        Toast.makeText(this@FloatingOverlayService, "Scan failed: $scanError", Toast.LENGTH_SHORT).show()
+                    }
+                    adapter.updateData(results)
+
+                    // Update UI based on results
+                    progressScan.visibility = View.GONE
+                    btnScan.isEnabled = true
+                    btnNextScan.isEnabled = true
+
+                    // Switch to results tab automatically
+                    switchTab("RESULTS")
+
+                    if (results.isEmpty()) {
+                        layoutEmptyState.visibility = View.VISIBLE
+                        rvResults.visibility = View.GONE
+                        btnNextScan.visibility = View.GONE
+                    } else {
+                        layoutEmptyState.visibility = View.GONE
+                        rvResults.visibility = View.VISIBLE
+                        btnNextScan.visibility = View.VISIBLE
+                    }
+                }
+            }
+        }
+
         btnScan.setOnClickListener {
-            // TRIGGER THE NATIVE SCANNER HERE
-            Toast.makeText(this, "Scanning PID $targetPid...", Toast.LENGTH_SHORT).show()
-            // NativeScanner.readMemory(...)
+            btnNextScan.visibility = View.GONE
+            performScan(isNext = false)
+        }
+
+        btnNextScan.setOnClickListener {
+            performScan(isNext = true)
+        }
+
+        btnHook.setOnClickListener {
+             Toast.makeText(this, "Hooking functions...", Toast.LENGTH_SHORT).show()
+        }
+
+        btnExecuteScript.setOnClickListener {
+            val script = etScriptInput.text.toString()
+            val output = com.techted89.gameex.scripting.GameGuardianAPI.executeScript(script)
+            tvScriptOutput.text = "Output:\n$output"
+        }
+
+        btnDisassemble.setOnClickListener {
+            val filesDir = getExternalFilesDir(null)?.absolutePath ?: return@setOnClickListener
+            val path = "$filesDir/script.lua"
+            val outPath = "$filesDir/script.asm"
+            Toast.makeText(this, "Disassembling...", Toast.LENGTH_SHORT).show()
+            // In real app, write input content to file first
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    NativeScanner.disassembleScript(path, outPath)
+                    withContext(Dispatchers.Main) {
+                        tvScriptOutput.text = "Disassembled to $outPath"
+                    }
+                } catch (e: Exception) {
+                     withContext(Dispatchers.Main) {
+                        tvScriptOutput.text = "Error: ${e.message}"
+                    }
+                }
+            }
+        }
+
+        btnAssemble.setOnClickListener {
+            val filesDir = getExternalFilesDir(null)?.absolutePath ?: return@setOnClickListener
+            val path = "$filesDir/script.asm"
+            val outPath = "$filesDir/script.lua"
+            Toast.makeText(this, "Assembling...", Toast.LENGTH_SHORT).show()
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    NativeScanner.assembleScript(path, outPath)
+                    withContext(Dispatchers.Main) {
+                        tvScriptOutput.text = "Assembled to $outPath"
+                    }
+                } catch (e: Exception) {
+                     withContext(Dispatchers.Main) {
+                        tvScriptOutput.text = "Error: ${e.message}"
+                    }
+                }
+            }
+        }
+
+        etSearchValue.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                performScan()
+                true
+            } else {
+                false
+            }
         }
     }
 
@@ -187,8 +469,39 @@ class FloatingOverlayService : Service() {
         isDashboardVisible = false
     }
 
+    private fun showStealthDialog() {
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_stealth_settings, null)
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_DIM_BEHIND,
+            PixelFormat.TRANSLUCENT
+        )
+        params.dimAmount = 0.7f
+        params.gravity = Gravity.CENTER
+
+        windowManager.addView(dialogView, params)
+
+        val btnApply = dialogView.findViewById<Button>(R.id.btn_apply_stealth)
+        val cbHide = dialogView.findViewById<android.widget.CheckBox>(R.id.cb_hide_from_game)
+        val cbRandom = dialogView.findViewById<android.widget.CheckBox>(R.id.cb_randomize_pkg)
+
+        btnApply.setOnClickListener {
+            if (cbHide.isChecked) {
+                NativeScanner.enableStealthMode()
+            }
+            if (cbRandom.isChecked) {
+                ProcessUtils.randomizePackageName(this)
+            }
+            windowManager.removeView(dialogView)
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        serviceScope.cancel()
         if (isDashboardVisible) windowManager.removeView(dashboardView)
         else windowManager.removeView(iconView)
     }

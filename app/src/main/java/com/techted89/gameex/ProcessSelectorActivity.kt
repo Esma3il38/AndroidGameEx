@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.floatingactionbutton.FloatingActionButton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -23,6 +24,11 @@ class ProcessSelectorActivity : AppCompatActivity() {
 
         val recycler = findViewById<RecyclerView>(R.id.recycler_processes)
         recycler.layoutManager = LinearLayoutManager(this)
+
+        val fabRefresh = findViewById<FloatingActionButton>(R.id.fab_refresh)
+        fabRefresh.setOnClickListener {
+            loadProcesses(recycler)
+        }
 
         loadProcesses(recycler)
     }

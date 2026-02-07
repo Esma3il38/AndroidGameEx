@@ -4,6 +4,8 @@ import java.io.DataOutputStream
 import java.io.InputStreamReader
 
 object RootUtils {
+    private val WHITESPACE_REGEX = "\\s+".toRegex()
+
     fun requestRoot(): Boolean {
         var process: Process? = null
         return try {
@@ -21,6 +23,29 @@ object RootUtils {
         }
     }
 
+    fun parsePsOutput(reader: BufferedReader): List<ProcessInfo> {
+        val processes = mutableListOf<ProcessInfo>()
+        var line: String? = reader.readLine()
+        while (line != null) {
+            // Typical ps output: USER PID ... NAME
+            val parts = line.trim().split(WHITESPACE_REGEX)
+            if (parts.size >= 9) {
+                // Assuming standard android ps output where PID is usually 2nd column
+                // and Name is last column.
+                val pidStr = parts[1]
+                val name = parts.last()
+                try {
+                    val pid = pidStr.toInt()
+                    processes.add(ProcessInfo(pid, name))
+                } catch (e: NumberFormatException) {
+                    // Ignore header or lines that don't match expected format
+                }
+            }
+            line = reader.readLine()
+        }
+        return processes
+    }
+
     fun getRunningProcesses(): List<ProcessInfo> {
         val processes = mutableListOf<ProcessInfo>()
         // Execute ps -A via su to see all processes
@@ -34,24 +59,8 @@ object RootUtils {
             os.writeBytes("exit\n")
             os.flush()
 
-            var line: String? = reader.readLine()
-            while (line != null) {
-                // Typical ps output: USER PID ... NAME
-                val parts = line!!.trim().split("\\s+".toRegex())
-                if (parts.size >= 9) {
-                    // Assuming standard android ps output where PID is usually 2nd column
-                    // and Name is last column.
-                    val pidStr = parts[1]
-                    val name = parts.last()
-                    try {
-                        val pid = pidStr.toInt()
-                        processes.add(ProcessInfo(pid, name))
-                    } catch (e: NumberFormatException) {
-                        // Ignore header or lines that don't match expected format
-                    }
-                }
-                line = reader.readLine()
-            }
+            processes.addAll(parsePsOutput(reader))
+
             process.waitFor()
         } catch (e: Exception) {
             e.printStackTrace()

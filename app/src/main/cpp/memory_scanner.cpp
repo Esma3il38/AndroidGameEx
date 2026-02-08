@@ -13,6 +13,14 @@
 #include <cinttypes>
 #include <iostream>
 #include <set>
+#include <map>
+#include <sys/ptrace.h>
+#include <sys/wait.h>
+#include <sys/mman.h>
+#include <errno.h>
+
+// Forward Declaration for JNI compatibility to resolve circular dependency
+extern "C" JNIEXPORT jint JNICALL Java_com_techted89_gameex_NativeScanner_searchMemoryString(JNIEnv* env, jobject thiz, jint pid, jstring queryString);
 
 // Define the structure of a memory region
 struct MemoryRegion {
@@ -27,6 +35,11 @@ struct MemoryRegion {
 // In a real app, this might be stored in a temporary file to save RAM.
 std::vector<jlong> searchResults;
 std::mutex searchResultsMutex;
+
+// Global map to store original bytes for hooks, enabling unhooking
+// Key: Target Address (jlong), Value: Original Bytes (16 bytes for ARM64 trampoline)
+std::map<jlong, std::vector<uint8_t>> original_bytes_map;
+std::mutex hook_mutex;
 
 enum SearchType {
     EXACT,
@@ -153,76 +166,58 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
     return regions;
 }
 
-extern "C"
-JNIEXPORT jint JNICALL
-Java_com_techted89_gameex_NativeScanner_searchMemoryString(
-        JNIEnv* env,
-        jobject /* this */,
-        jint pid,
-        jstring queryString) {
+/**
+ * @brief Write memory using Ptrace (POKETEXT) to ensure I-Cache invalidation.
+ *
+ * This function attaches to the target process, writes the data using PTRACE_POKETEXT
+ * (which handles cache coherency on ARM64 Linux), and detaches.
+ * Handles unaligned writes by using a Read-Modify-Write cycle on aligned words.
+ *
+ * @param pid Target Process ID.
+ * @param addr Target Address.
+ * @param data Buffer to write.
+ * @param size Size of buffer.
+ * @return True if successful.
+ */
+bool ptraceWrite(int pid, uintptr_t addr, const uint8_t* data, size_t size) {
+    if (ptrace(PTRACE_ATTACH, pid, 0, 0) < 0) {
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Ptrace attach failed: %s", strerror(errno));
+        return false;
+    }
+    waitpid(pid, nullptr, 0);
 
-    const char* queryCStr = env->GetStringUTFChars(queryString, nullptr);
-    std::string query(queryCStr);
-    env->ReleaseStringUTFChars(queryString, queryCStr);
+    uintptr_t end_addr = addr + size;
+    // Align start address down to 8-byte boundary
+    uintptr_t aligned_start = addr & ~(sizeof(long) - 1);
 
-    SearchCondition cond = parseSearchQuery(query);
+    for (uintptr_t curr = aligned_start; curr < end_addr; curr += sizeof(long)) {
+        errno = 0;
+        long word = ptrace(PTRACE_PEEKTEXT, pid, (void*)curr, 0);
+        if (errno != 0) {
+            __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Ptrace peek failed at %lx: %s", (unsigned long)curr, strerror(errno));
+            ptrace(PTRACE_DETACH, pid, 0, 0);
+            return false;
+        }
 
-    std::vector<jlong> localResults;
-    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
+        // Determine overlap between the current word and our data buffer
+        uintptr_t overlap_start = std::max(curr, addr);
+        uintptr_t overlap_end = std::min(curr + sizeof(long), end_addr);
+        size_t overlap_len = overlap_end - overlap_start;
+        size_t offset_in_word = overlap_start - curr;
+        size_t offset_in_data = overlap_start - addr;
 
-    const size_t CHUNK_SIZE = 4096;
-    std::vector<uint8_t> buffer(CHUNK_SIZE);
-    int matchCount = 0;
+        // Copy data into word (Assuming Little Endian for Android ARM64)
+        std::memcpy((uint8_t*)&word + offset_in_word, data + offset_in_data, overlap_len);
 
-    for (const auto& region : regions) {
-        uintptr_t currentAddr = region.startAddress;
-        while (currentAddr < region.endAddress) {
-            uintptr_t remaining = region.endAddress - currentAddr;
-            size_t readSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : (size_t)remaining;
-
-            struct iovec local_iov = {buffer.data(), readSize};
-            struct iovec remote_iov = {(void*)currentAddr, readSize};
-
-            ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
-
-            if (bytesRead >= 4) {
-                size_t limit = (size_t)bytesRead;
-                for (size_t i = 0; i + 4 <= limit; i += 4) {
-                    int val;
-                    std::memcpy(&val, &buffer[i], sizeof(int));
-
-                    bool match = false;
-                    switch (cond.type) {
-                        case EXACT:
-                            match = (val == cond.value1);
-                            break;
-                        case RANGE:
-                            match = (val >= cond.value1 && val <= cond.value2);
-                            break;
-                        case ENCRYPTED_XOR:
-                            match = ((val ^ cond.xorKey) == cond.value1);
-                            break;
-                        default:
-                            break;
-                    }
-
-                    if (match) {
-                        localResults.push_back((jlong)(currentAddr + i));
-                        matchCount++;
-                        if (matchCount >= 100000) goto search_complete;
-                    }
-                }
-            }
-            currentAddr += readSize;
+        if (ptrace(PTRACE_POKETEXT, pid, (void*)curr, (void*)word) < 0) {
+            __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Ptrace poke failed at %lx: %s", (unsigned long)curr, strerror(errno));
+            ptrace(PTRACE_DETACH, pid, 0, 0);
+            return false;
         }
     }
 
-search_complete:
-    {
-        std::lock_guard<std::mutex> lock(searchResultsMutex);
-        searchResults = std::move(localResults);
-    }
-    return matchCount;
+    ptrace(PTRACE_DETACH, pid, 0, 0);
+    return true;
 }
 
 extern "C" /**
@@ -257,9 +252,8 @@ extern "C" /**
  * @brief Install a hook at the target address.
  *
  * Writes an ARM64 absolute jump (trampoline) to the target address in the target process.
- * Note: This implementation assumes the target memory page is writable (PROT_WRITE).
- * If it's not, we would need to use ptrace or manipulate mappings, but process_vm_writev
- * might fail if permissions are strict.
+ * Stores the original 16 bytes to allow for restoration (unhooking).
+ * Uses ptrace to ensure I-Cache coherency.
  */
 JNIEXPORT jboolean JNICALL
 Java_com_techted89_gameex_NativeScanner_installHook(
@@ -275,8 +269,25 @@ Java_com_techted89_gameex_NativeScanner_installHook(
         return JNI_FALSE;
     }
 
+    std::lock_guard<std::mutex> lock(hook_mutex);
+
+    // 1. Read original bytes (16 bytes for ARM64 trampoline)
+    std::vector<uint8_t> original_bytes(16);
+    struct iovec local_iov_read = {original_bytes.data(), 16};
+    struct iovec remote_iov_read = {(void*)(uintptr_t)targetAddress, 16};
+
+    ssize_t bytesRead = process_vm_readv(pid, &local_iov_read, 1, &remote_iov_read, 1, 0);
+    if (bytesRead != 16) {
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "InstallHook failed: could not read original bytes at %" PRIx64 ". Read: %zd", (uint64_t)targetAddress, bytesRead);
+        return JNI_FALSE;
+    }
+
+    // 2. Store original bytes
+    original_bytes_map[targetAddress] = original_bytes;
+
     __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "InstallHook: PID %d, %" PRIx64 " -> %" PRIx64, pid, (uint64_t)targetAddress, (uint64_t)replacementAddress);
 
+    // 3. Write Trampoline
     // Basic ARM64 Trampoline Generation (Absolute Jump)
     // LDR X16, #8 (PC+8) -> 0x58000050
     // BR X16             -> 0xD61F0200
@@ -292,13 +303,24 @@ Java_com_techted89_gameex_NativeScanner_installHook(
     std::memcpy(payload.data(), instructions, 8);
     std::memcpy(payload.data() + 8, &replacementAddress, 8);
 
-    struct iovec local_iov = {payload.data(), payload.size()};
-    struct iovec remote_iov = {(void*)(uintptr_t)targetAddress, payload.size()};
+    // Check for Self-Patching
+    if (pid == getpid()) {
+        long pageSize = sysconf(_SC_PAGESIZE);
+        void* pageStart = (void*)(targetAddress & ~(pageSize - 1));
+        if (mprotect(pageStart, pageSize, PROT_READ | PROT_WRITE | PROT_EXEC) < 0) {
+             __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "mprotect failed: %s", strerror(errno));
+             original_bytes_map.erase(targetAddress);
+             return JNI_FALSE;
+        }
+        std::memcpy((void*)targetAddress, payload.data(), payload.size());
+        __builtin___clear_cache((char*)targetAddress, (char*)targetAddress + payload.size());
+        return JNI_TRUE;
+    }
 
-    ssize_t written = process_vm_writev(pid, &local_iov, 1, &remote_iov, 1, 0);
-
-    if (written != (ssize_t)payload.size()) {
-        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "InstallHook failed: written %zd/%zu. Check permissions/SELinux.", written, payload.size());
+    // Use ptraceWrite for external process
+    if (!ptraceWrite(pid, (uintptr_t)targetAddress, payload.data(), payload.size())) {
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "InstallHook failed: ptrace write error");
+        original_bytes_map.erase(targetAddress);
         return JNI_FALSE;
     }
 
@@ -307,6 +329,8 @@ Java_com_techted89_gameex_NativeScanner_installHook(
 
 extern "C" /**
  * @brief Remove a previously installed hook.
+ *
+ * Restores the original bytes stored during installation.
  */
 JNIEXPORT jboolean JNICALL
 Java_com_techted89_gameex_NativeScanner_removeHook(
@@ -317,10 +341,39 @@ Java_com_techted89_gameex_NativeScanner_removeHook(
 
     __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "RemoveHook: PID %d, %" PRIx64, pid, (uint64_t)targetAddress);
 
-    // To properly remove a hook, we should restore the original bytes.
-    // Since we don't store them here, this is just a placeholder.
-    // In a real implementation, 'installHook' should return the original bytes,
-    // and 'removeHook' should take them as an argument to write them back.
+    std::lock_guard<std::mutex> lock(hook_mutex);
+
+    auto it = original_bytes_map.find(targetAddress);
+    if (it == original_bytes_map.end()) {
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "RemoveHook failed: original bytes not stored for %" PRIx64, (uint64_t)targetAddress);
+        return JNI_FALSE;
+    }
+
+    // Restore original bytes
+    std::vector<uint8_t>& bytes = it->second;
+
+    // Check for Self-Patching
+    if (pid == getpid()) {
+        long pageSize = sysconf(_SC_PAGESIZE);
+        void* pageStart = (void*)(targetAddress & ~(pageSize - 1));
+        if (mprotect(pageStart, pageSize, PROT_READ | PROT_WRITE | PROT_EXEC) < 0) {
+             __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "mprotect failed: %s", strerror(errno));
+             return JNI_FALSE;
+        }
+        std::memcpy((void*)targetAddress, bytes.data(), bytes.size());
+        __builtin___clear_cache((char*)targetAddress, (char*)targetAddress + bytes.size());
+        original_bytes_map.erase(it);
+        return JNI_TRUE;
+    }
+
+    // Use ptraceWrite for external process
+    if (!ptraceWrite(pid, (uintptr_t)targetAddress, bytes.data(), bytes.size())) {
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "RemoveHook failed: ptrace write error");
+        return JNI_FALSE;
+    }
+
+    // Remove from storage
+    original_bytes_map.erase(it);
 
     return JNI_TRUE;
 }
@@ -415,6 +468,78 @@ Java_com_techted89_gameex_NativeScanner_enableStealthMode(
 
     // Stub: Simulate unlinking
     // This is where advanced anti-anti-cheat logic would live.
+}
+
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_searchMemoryString(
+        JNIEnv* env,
+        jobject /* this */,
+        jint pid,
+        jstring queryString) {
+
+    const char* queryCStr = env->GetStringUTFChars(queryString, nullptr);
+    std::string query(queryCStr);
+    env->ReleaseStringUTFChars(queryString, queryCStr);
+
+    SearchCondition cond = parseSearchQuery(query);
+
+    std::vector<jlong> localResults;
+    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
+
+    const size_t CHUNK_SIZE = 4096;
+    std::vector<uint8_t> buffer(CHUNK_SIZE);
+    int matchCount = 0;
+
+    for (const auto& region : regions) {
+        uintptr_t currentAddr = region.startAddress;
+        while (currentAddr < region.endAddress) {
+            uintptr_t remaining = region.endAddress - currentAddr;
+            size_t readSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : (size_t)remaining;
+
+            struct iovec local_iov = {buffer.data(), readSize};
+            struct iovec remote_iov = {(void*)currentAddr, readSize};
+
+            ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+
+            if (bytesRead >= 4) {
+                size_t limit = (size_t)bytesRead;
+                for (size_t i = 0; i + 4 <= limit; i += 4) {
+                    int val;
+                    std::memcpy(&val, &buffer[i], sizeof(int));
+
+                    bool match = false;
+                    switch (cond.type) {
+                        case EXACT:
+                            match = (val == cond.value1);
+                            break;
+                        case RANGE:
+                            match = (val >= cond.value1 && val <= cond.value2);
+                            break;
+                        case ENCRYPTED_XOR:
+                            match = ((val ^ cond.xorKey) == cond.value1);
+                            break;
+                        default:
+                            break;
+                    }
+
+                    if (match) {
+                        localResults.push_back((jlong)(currentAddr + i));
+                        matchCount++;
+                        if (matchCount >= 100000) goto search_complete;
+                    }
+                }
+            }
+            currentAddr += readSize;
+        }
+    }
+
+search_complete:
+    {
+        std::lock_guard<std::mutex> lock(searchResultsMutex);
+        searchResults = std::move(localResults);
+    }
+    return matchCount;
 }
 
 extern "C"

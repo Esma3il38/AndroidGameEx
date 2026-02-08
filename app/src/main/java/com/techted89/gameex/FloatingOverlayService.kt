@@ -1,5 +1,7 @@
 package com.techted89.gameex
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -13,6 +15,7 @@ import android.widget.ImageButton
 import android.widget.Toast
 import android.view.inputmethod.EditorInfo
 import androidx.core.app.NotificationCompat
+import kotlin.math.abs
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -44,14 +47,29 @@ class FloatingOverlayService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         targetPid = intent?.getIntExtra("PID", -1) ?: -1
 
+        createNotificationChannel()
+
         // Ensure we run as Foreground to prevent killing
         startForeground(1, NotificationCompat.Builder(this, "overlay_channel")
             .setContentTitle("Memory Editor Active")
             .setContentText("Attached to PID: $targetPid")
             .setSmallIcon(R.mipmap.ic_launcher)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build())
 
         return START_NOT_STICKY
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val serviceChannel = NotificationChannel(
+                "overlay_channel",
+                "Overlay Service Channel",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(serviceChannel)
+        }
     }
 
     override fun onCreate() {
@@ -69,6 +87,7 @@ class FloatingOverlayService : Service() {
         val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
+            @Suppress("DEPRECATION")
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
@@ -134,7 +153,7 @@ class FloatingOverlayService : Service() {
                         val diffX = (event.rawX - initialTouchX).toInt()
                         val diffY = (event.rawY - initialTouchY).toInt()
 
-                        if (Math.abs(diffX) < 10 && Math.abs(diffY) < 10) {
+                        if (abs(diffX) < 10 && abs(diffY) < 10) {
                             showDashboard()
                         }
                         return true

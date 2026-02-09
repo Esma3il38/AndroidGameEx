@@ -153,6 +153,14 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
     return regions;
 }
 
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_searchMemoryString(
+        JNIEnv* env,
+        jobject /* this */,
+        jint pid,
+        jstring queryString);
+
 extern "C" /**
  * @brief Scans a target process's readable-and-writable memory regions for a 32-bit integer value.
  *

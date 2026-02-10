@@ -294,15 +294,31 @@ class FloatingOverlayService : Service() {
         }
 
         btnPauseGame.setOnClickListener {
-            // Toggle Pause/Resume
-            if (ProcessUtils.isProcessPaused(targetPid)) {
-                ProcessUtils.resumeProcess(targetPid)
-                btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_pause)
-                Toast.makeText(this, "Game Resumed", Toast.LENGTH_SHORT).show()
-            } else {
-                ProcessUtils.pauseProcess(targetPid)
-                btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_play)
-                Toast.makeText(this, "Game Paused", Toast.LENGTH_SHORT).show()
+            btnPauseGame.isEnabled = false
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    // Toggle Pause/Resume
+                    val isCurrentlyPaused = ProcessUtils.isProcessPaused(targetPid)
+                    if (isCurrentlyPaused) {
+                        ProcessUtils.resumeProcess(targetPid)
+                    } else {
+                        ProcessUtils.pauseProcess(targetPid)
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        if (isCurrentlyPaused) {
+                            btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_pause)
+                            Toast.makeText(this@FloatingOverlayService, "Game Resumed", Toast.LENGTH_SHORT).show()
+                        } else {
+                            btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_play)
+                            Toast.makeText(this@FloatingOverlayService, "Game Paused", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } finally {
+                    withContext(Dispatchers.Main) {
+                        btnPauseGame.isEnabled = true
+                    }
+                }
             }
         }
 

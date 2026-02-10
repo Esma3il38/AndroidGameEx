@@ -9,9 +9,14 @@ import java.lang.ref.WeakReference
 
 object GameGuardianAPI {
     private var contextRef: WeakReference<Context>? = null
+    private var targetPid: Int = 0
 
     fun init(context: Context) {
         contextRef = WeakReference(context)
+    }
+
+    fun setTargetPid(pid: Int) {
+        targetPid = pid
     }
 
     // Constants
@@ -36,16 +41,15 @@ object GameGuardianAPI {
     fun searchNumber(text: String, type: Int, encrypted: Boolean, sign: Int, memoryFrom: Long, memoryTo: Long) {
         // Construct query string based on parameters if needed
         // For now, we pass the raw text which might contain ranges etc.
-        val pid = 0 // In a real scenario, this context needs to be injected or retrieved
-        // This is a stub implementation.
-        // NativeScanner.searchMemoryString(pid, text)
+        NativeScanner.searchMemoryString(targetPid, text)
     }
 
     /**
      * Refines the search results.
      */
     fun refineNumber(text: String, type: Int) {
-        // NativeScanner.filterMemory(pid, text.toIntOrNull() ?: 0)
+        val intVal = text.toIntOrNull() ?: 0
+        NativeScanner.filterMemory(targetPid, intVal)
     }
 
     /**
@@ -64,8 +68,7 @@ object GameGuardianAPI {
     }
 
     fun dumpMemory(from: Long, to: Long, dir: String, flags: Int? = null): Boolean {
-        // PID 0 in mockup refers to selected process context
-        return NativeScanner.dumpMemory(0, from, to, dir)
+        return NativeScanner.dumpMemory(targetPid, from, to, dir)
     }
 
     fun copyText(text: String, fixLocale: Boolean = true) {
@@ -77,9 +80,7 @@ object GameGuardianAPI {
     }
 
     fun getTargetPackage(): String? {
-        // Assuming target PID is globally managed or passed. For now using placeholder 0 or requiring injection.
-        // Ideally this API object would be part of a ScriptEngine instance with context.
-        return SystemUtils.getTargetPackage(0)
+        return SystemUtils.getTargetPackage(targetPid)
     }
 
     fun searchPointer(maxOffset: Int, memoryFrom: Long = 0, memoryTo: Long = -1, limit: Long = 0) {
@@ -120,12 +121,12 @@ object GameGuardianAPI {
     }
 
     fun processPause(): Boolean {
-        // Assuming pid 0 refers to selected target in this context
-        // In reality, need active PID injection
+        ProcessUtils.pauseProcess(targetPid)
         return true
     }
 
     fun processResume(): Boolean {
+        ProcessUtils.resumeProcess(targetPid)
         return true
     }
 

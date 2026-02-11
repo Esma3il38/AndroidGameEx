@@ -27,6 +27,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import com.techted89.gameex.utils.ProcessUtils
+import com.techted89.gameex.scripting.GameGuardianAPI
 
 class FloatingOverlayService : Service() {
 
@@ -46,6 +47,7 @@ class FloatingOverlayService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         targetPid = intent?.getIntExtra("PID", -1) ?: -1
+        GameGuardianAPI.setTargetPid(targetPid)
 
         createNotificationChannel()
 
@@ -74,7 +76,7 @@ class FloatingOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        com.techted89.gameex.scripting.GameGuardianAPI.init(this)
+        GameGuardianAPI.init(this)
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
         // 1. Inflate Views
@@ -393,7 +395,7 @@ class FloatingOverlayService : Service() {
 
         btnExecuteScript.setOnClickListener {
             val script = etScriptInput.text.toString()
-            val output = com.techted89.gameex.scripting.GameGuardianAPI.executeScript(script)
+            val output = GameGuardianAPI.executeScript(script)
             tvScriptOutput.text = "Output:\n$output"
         }
 

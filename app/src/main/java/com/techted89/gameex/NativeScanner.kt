@@ -77,13 +77,22 @@ external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
 
     /**
      * Installs a hook at the target address.
+     *
+     * @param pid Target process ID.
+     * @param targetAddress Address to hook.
+     * @param replacementAddress Address to jump to.
+     * @return True if successful.
      */
-    external fun installHook(targetAddress: Long, replacementAddress: Long): Boolean
+    external fun installHook(pid: Int, targetAddress: Long, replacementAddress: Long): Boolean
 
     /**
      * Removes a previously installed hook.
+     *
+     * @param pid Target process ID.
+     * @param targetAddress Address of the hook.
+     * @return True if successful.
      */
-    external fun removeHook(targetAddress: Long): Boolean
+    external fun removeHook(pid: Int, targetAddress: Long): Boolean
 
     /**
      * Sets the speed multiplier for the speedhack engine.

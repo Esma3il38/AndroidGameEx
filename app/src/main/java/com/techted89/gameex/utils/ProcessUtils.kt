@@ -9,8 +9,9 @@ object ProcessUtils {
         return try {
             // Use 'su' to read /proc/[pid]/stat to bypass permission issues on newer Android
             process = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat /proc/$pid/stat"))
-            val reader = java.io.BufferedReader(java.io.InputStreamReader(process.inputStream))
-            val content = reader.readLine()
+
+            val content = process.inputStream.bufferedReader().use { it.readLine() }
+            process.waitFor()
 
             if (content != null) {
                 // The state is the 3rd field in /proc/pid/stat
@@ -26,9 +27,9 @@ object ProcessUtils {
                     }
                 }
             }
-            process.waitFor()
             false
         } catch (e: Exception) {
+            e.printStackTrace()
             false
         } finally {
             process?.destroy()

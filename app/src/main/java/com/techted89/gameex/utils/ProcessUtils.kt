@@ -65,13 +65,19 @@ object ProcessUtils {
      */
     fun injectLibrary(pid: Int, libPath: String): Boolean {
         return try {
-            // Sanitize libPath to prevent command injection
-            val safeLibPath = libPath.replace("'", "'\"'\"'")
+            // Hex-encode the path to bypass shell interpretation entirely
+            // 'xxd -r -p' reverses the hex dump back to binary/text
+            val hexPath = libPath.toByteArray().joinToString("") { "%02x".format(it) }
 
-            // Execute real injection command without guards
-            // Assumes 'injector' binary is available in PATH or /data/local/tmp
-            // This grants full control to the user to attempt injection
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "injector -p $pid -l '$safeLibPath'"))
+            // Construct command: echo <hex> | xxd -r -p | xargs -0 -I {} injector -p <pid> -l {}
+            // Note: xargs -0 might not be available on all Android toybox implementations.
+            // Simpler alternative: store path in a temp var or use command substitution if injector supports it.
+            // Assuming injector takes -l <path>, we can use $(printf ...) to decode safely.
+
+            // Robust command using printf to decode hex strictly
+            val cmd = "injector -p $pid -l \"$(printf '\\x%s' $(echo $hexPath | sed 's/../& /g'))\""
+
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
             val exitCode = process.waitFor()
 
             // Return true if exit code is 0 (success)

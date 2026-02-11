@@ -166,6 +166,14 @@ extern "C" /**
  * @return jint The number of matches recorded in searchResults (capped at 100000).
  */
 JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_searchMemoryString(
+        JNIEnv* env,
+        jobject thiz,
+        jint pid,
+        jstring queryString);
+
+extern "C"
+JNIEXPORT jint JNICALL
 Java_com_techted89_gameex_NativeScanner_searchMemory(
         JNIEnv* env,
         jobject thiz,

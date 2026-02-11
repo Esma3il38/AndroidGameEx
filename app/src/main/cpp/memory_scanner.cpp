@@ -153,6 +153,78 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
     return regions;
 }
 
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_searchMemoryString(
+        JNIEnv* env,
+        jobject /* this */,
+        jint pid,
+        jstring queryString) {
+
+    const char* queryCStr = env->GetStringUTFChars(queryString, nullptr);
+    std::string query(queryCStr);
+    env->ReleaseStringUTFChars(queryString, queryCStr);
+
+    SearchCondition cond = parseSearchQuery(query);
+
+    std::vector<jlong> localResults;
+    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
+
+    const size_t CHUNK_SIZE = 4096;
+    std::vector<uint8_t> buffer(CHUNK_SIZE);
+    int matchCount = 0;
+
+    for (const auto& region : regions) {
+        uintptr_t currentAddr = region.startAddress;
+        while (currentAddr < region.endAddress) {
+            uintptr_t remaining = region.endAddress - currentAddr;
+            size_t readSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : (size_t)remaining;
+
+            struct iovec local_iov = {buffer.data(), readSize};
+            struct iovec remote_iov = {(void*)currentAddr, readSize};
+
+            ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+
+            if (bytesRead >= 4) {
+                size_t limit = (size_t)bytesRead;
+                for (size_t i = 0; i + 4 <= limit; i += 4) {
+                    int val;
+                    std::memcpy(&val, &buffer[i], sizeof(int));
+
+                    bool match = false;
+                    switch (cond.type) {
+                        case EXACT:
+                            match = (val == cond.value1);
+                            break;
+                        case RANGE:
+                            match = (val >= cond.value1 && val <= cond.value2);
+                            break;
+                        case ENCRYPTED_XOR:
+                            match = ((val ^ cond.xorKey) == cond.value1);
+                            break;
+                        default:
+                            break;
+                    }
+
+                    if (match) {
+                        localResults.push_back((jlong)(currentAddr + i));
+                        matchCount++;
+                        if (matchCount >= 100000) goto search_complete;
+                    }
+                }
+            }
+            currentAddr += readSize;
+        }
+    }
+
+search_complete:
+    {
+        std::lock_guard<std::mutex> lock(searchResultsMutex);
+        searchResults = std::move(localResults);
+    }
+    return matchCount;
+}
+
 extern "C" /**
  * @brief Scans a target process's readable-and-writable memory regions for a 32-bit integer value.
  *
@@ -330,78 +402,6 @@ Java_com_techted89_gameex_NativeScanner_enableStealthMode(
 
     // Stub: Simulate unlinking
     // This is where advanced anti-anti-cheat logic would live.
-}
-
-extern "C"
-JNIEXPORT jint JNICALL
-Java_com_techted89_gameex_NativeScanner_searchMemoryString(
-        JNIEnv* env,
-        jobject /* this */,
-        jint pid,
-        jstring queryString) {
-
-    const char* queryCStr = env->GetStringUTFChars(queryString, nullptr);
-    std::string query(queryCStr);
-    env->ReleaseStringUTFChars(queryString, queryCStr);
-
-    SearchCondition cond = parseSearchQuery(query);
-
-    std::vector<jlong> localResults;
-    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
-
-    const size_t CHUNK_SIZE = 4096;
-    std::vector<uint8_t> buffer(CHUNK_SIZE);
-    int matchCount = 0;
-
-    for (const auto& region : regions) {
-        uintptr_t currentAddr = region.startAddress;
-        while (currentAddr < region.endAddress) {
-            uintptr_t remaining = region.endAddress - currentAddr;
-            size_t readSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : (size_t)remaining;
-
-            struct iovec local_iov = {buffer.data(), readSize};
-            struct iovec remote_iov = {(void*)currentAddr, readSize};
-
-            ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
-
-            if (bytesRead >= 4) {
-                size_t limit = (size_t)bytesRead;
-                for (size_t i = 0; i + 4 <= limit; i += 4) {
-                    int val;
-                    std::memcpy(&val, &buffer[i], sizeof(int));
-
-                    bool match = false;
-                    switch (cond.type) {
-                        case EXACT:
-                            match = (val == cond.value1);
-                            break;
-                        case RANGE:
-                            match = (val >= cond.value1 && val <= cond.value2);
-                            break;
-                        case ENCRYPTED_XOR:
-                            match = ((val ^ cond.xorKey) == cond.value1);
-                            break;
-                        default:
-                            break;
-                    }
-
-                    if (match) {
-                        localResults.push_back((jlong)(currentAddr + i));
-                        matchCount++;
-                        if (matchCount >= 100000) goto search_complete;
-                    }
-                }
-            }
-            currentAddr += readSize;
-        }
-    }
-
-search_complete:
-    {
-        std::lock_guard<std::mutex> lock(searchResultsMutex);
-        searchResults = std::move(localResults);
-    }
-    return matchCount;
 }
 
 extern "C"

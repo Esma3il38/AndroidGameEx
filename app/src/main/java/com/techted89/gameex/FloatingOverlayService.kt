@@ -295,14 +295,20 @@ class FloatingOverlayService : Service() {
 
         btnPauseGame.setOnClickListener {
             // Toggle Pause/Resume
-            if (ProcessUtils.isProcessPaused(targetPid)) {
-                ProcessUtils.resumeProcess(targetPid)
-                btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_pause)
-                Toast.makeText(this, "Game Resumed", Toast.LENGTH_SHORT).show()
-            } else {
-                ProcessUtils.pauseProcess(targetPid)
-                btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_play)
-                Toast.makeText(this, "Game Paused", Toast.LENGTH_SHORT).show()
+            serviceScope.launch(Dispatchers.IO) {
+                if (ProcessUtils.isProcessPaused(targetPid)) {
+                    ProcessUtils.resumeProcess(targetPid)
+                    withContext(Dispatchers.Main) {
+                        btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_pause)
+                        Toast.makeText(this@FloatingOverlayService, "Game Resumed", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    ProcessUtils.pauseProcess(targetPid)
+                    withContext(Dispatchers.Main) {
+                        btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_play)
+                        Toast.makeText(this@FloatingOverlayService, "Game Paused", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         }
 
@@ -401,10 +407,13 @@ class FloatingOverlayService : Service() {
             val filesDir = getExternalFilesDir(null)?.absolutePath ?: return@setOnClickListener
             val path = "$filesDir/script.lua"
             val outPath = "$filesDir/script.asm"
+            val scriptContent = etScriptInput.text.toString()
+
             Toast.makeText(this, "Disassembling...", Toast.LENGTH_SHORT).show()
-            // In real app, write input content to file first
+
             serviceScope.launch(Dispatchers.IO) {
                 try {
+                    java.io.File(path).writeText(scriptContent)
                     NativeScanner.disassembleScript(path, outPath)
                     withContext(Dispatchers.Main) {
                         tvScriptOutput.text = "Disassembled to $outPath"

@@ -1,25 +1,35 @@
 package com.techted89.gameex.utils
 
-import java.io.File
+import java.io.BufferedReader
+import java.io.DataOutputStream
+import java.io.InputStreamReader
 
 object ProcessUtils {
 
     fun isProcessPaused(pid: Int): Boolean {
+        var process: Process? = null
         return try {
-            val statFile = File("/proc/$pid/stat")
-            if (statFile.exists()) {
-                val content = statFile.readText()
+            process = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat /proc/$pid/stat"))
+            val reader = BufferedReader(InputStreamReader(process.inputStream))
+            val content = reader.readLine()
+            process.waitFor()
+
+            if (content != null) {
                 // The state is the 3rd field in /proc/pid/stat
                 // PID (comm) state ...
-                val parts = content.split(" ")
-                if (parts.size > 2) {
-                    val state = parts[2]
-                    return state == "T" // T = Stopped (on a signal) or (before Linux 2.6.33) trace stopped
+                // Note: comm can contain spaces and parentheses.
+                // Robust parsing finds the last ')' and parses from there.
+                val lastParen = content.lastIndexOf(')')
+                if (lastParen != -1 && lastParen + 2 < content.length) {
+                    val stateChar = content[lastParen + 2]
+                    return stateChar == 'T' // T = Stopped (on a signal) or (before Linux 2.6.33) trace stopped
                 }
             }
             false
         } catch (e: Exception) {
             false
+        } finally {
+            process?.destroy()
         }
     }
 

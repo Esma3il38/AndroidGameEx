@@ -276,15 +276,16 @@ search_complete:
     return matchCount;
 }
 
-extern "C" /**
- * @brief Scans a target process's readable-and-writable memory regions for a 32-bit integer value.
- */
-JNIEXPORT jint JNICALL
-Java_com_techted89_gameex_NativeScanner_searchMemoryString(
-        JNIEnv* env,
-        jobject thiz,
-        jint pid,
-        jstring queryString);
+// [LEGACY/UNUSED]
+// extern "C" /**
+//  * @brief Scans a target process's readable-and-writable memory regions for a 32-bit integer value.
+//  */
+// JNIEXPORT jint JNICALL
+// Java_com_techted89_gameex_NativeScanner_searchMemoryString(
+//         JNIEnv* env,
+//         jobject thiz,
+//         jint pid,
+//         jstring queryString);
 
 extern "C"
 JNIEXPORT jint JNICALL

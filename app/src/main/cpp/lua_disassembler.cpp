@@ -67,7 +67,8 @@ Java_com_techted89_gameex_NativeScanner_disassembleScript(
                         int op = GET_OPCODE(instruction);
                         int a = GETARG_A(instruction);
 
-                        if (op < 47) { // Valid opcode range for our array
+                        // Safe bounds check. Array has 47 names + NULL. Valid ops are 0..46.
+                        if (op >= 0 && op < 47 && lua_opnames[op] != NULL) {
                             fprintf(fOut, "[%04d] %-10s %d", pc, lua_opnames[op], a);
 
                             int b = GETARG_B(instruction);

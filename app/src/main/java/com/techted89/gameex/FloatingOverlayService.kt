@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import java.io.File
 import com.techted89.gameex.utils.ProcessUtils
 import com.techted89.gameex.scripting.GameGuardianAPI
 
@@ -413,16 +414,29 @@ class FloatingOverlayService : Service() {
             val filesDir = getExternalFilesDir(null)?.absolutePath ?: return@setOnClickListener
             val path = "$filesDir/script.lua"
             val outPath = "$filesDir/script.asm"
+
             Toast.makeText(this, "Disassembling...", Toast.LENGTH_SHORT).show()
-            // In real app, write input content to file first
+
             serviceScope.launch(Dispatchers.IO) {
                 try {
+                    // Do not overwrite script.lua with input text, as disassembly requires a binary file.
+                    // We assume script.lua already exists (e.g. from assembly or loaded externally).
+                    if (!File(path).exists()) {
+                        withContext(Dispatchers.Main) {
+                            tvScriptOutput.text = "Error: Input file $path does not exist. Assemble a script first."
+                        }
+                        return@launch
+                    }
+
                     NativeScanner.disassembleScript(path, outPath)
+
+                    val disassembledContent = if (File(outPath).exists()) File(outPath).readText() else "No output"
+
                     withContext(Dispatchers.Main) {
-                        tvScriptOutput.text = "Disassembled to $outPath"
+                        tvScriptOutput.text = "Disassembled to $outPath:\n$disassembledContent"
                     }
                 } catch (e: Exception) {
-                     withContext(Dispatchers.Main) {
+                    withContext(Dispatchers.Main) {
                         tvScriptOutput.text = "Error: ${e.message}"
                     }
                 }
@@ -436,17 +450,22 @@ class FloatingOverlayService : Service() {
             val scriptContent = etScriptInput.text.toString()
 
             Toast.makeText(this, "Assembling...", Toast.LENGTH_SHORT).show()
+
             serviceScope.launch(Dispatchers.IO) {
                 try {
+                    File(path).writeText(scriptContent)
                     // Write current script input to the .asm file before assembling
                     java.io.File(path).writeText(scriptContent)
 
                     NativeScanner.assembleScript(path, outPath)
+
+                    val assembledSize = if (File(outPath).exists()) File(outPath).length() else 0
+
                     withContext(Dispatchers.Main) {
-                        tvScriptOutput.text = "Assembled to $outPath"
+                        tvScriptOutput.text = "Assembled to $outPath (Binary content size: $assembledSize bytes)"
                     }
                 } catch (e: Exception) {
-                     withContext(Dispatchers.Main) {
+                    withContext(Dispatchers.Main) {
                         tvScriptOutput.text = "Error: ${e.message}"
                     }
                 }

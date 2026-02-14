@@ -10,8 +10,11 @@ object ProcessUtils {
         var process: Process? = null
         return try {
             process = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat /proc/$pid/stat"))
-            val reader = BufferedReader(InputStreamReader(process.inputStream))
-            val content = reader.readLine()
+
+            val content = process.inputStream.bufferedReader().use { reader ->
+                reader.readLine()
+            }
+
             process.waitFor()
 
             if (content != null) {

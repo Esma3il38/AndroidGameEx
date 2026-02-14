@@ -335,8 +335,7 @@ class FloatingOverlayService : Service() {
                 var scanError: String? = null
                 val results = try {
                     if (isNext) {
-                        val intVal = valueStr.toIntOrNull() ?: 0
-                        NativeScanner.filterMemory(targetPid, intVal)
+                        NativeScanner.filterMemoryString(targetPid, valueStr)
                     } else {
                         NativeScanner.searchMemoryString(targetPid, valueStr)
                     }

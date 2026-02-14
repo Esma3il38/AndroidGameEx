@@ -212,7 +212,14 @@ Java_com_techted89_gameex_NativeScanner_searchMemoryString(
         jint pid,
         jstring queryString) {
 
+    if (queryString == nullptr) {
+        return 0;
+    }
+
     const char* queryCStr = env->GetStringUTFChars(queryString, nullptr);
+    if (queryCStr == nullptr) {
+        return 0;
+    }
     std::string query(queryCStr);
     env->ReleaseStringUTFChars(queryString, queryCStr);
 
@@ -275,16 +282,6 @@ search_complete:
     }
     return matchCount;
 }
-
-extern "C" /**
- * @brief Scans a target process's readable-and-writable memory regions for a 32-bit integer value.
- */
-JNIEXPORT jint JNICALL
-Java_com_techted89_gameex_NativeScanner_searchMemoryString(
-        JNIEnv* env,
-        jobject thiz,
-        jint pid,
-        jstring queryString);
 
 extern "C"
 JNIEXPORT jint JNICALL
@@ -395,20 +392,7 @@ Java_com_techted89_gameex_NativeScanner_removeHook(
     return success ? JNI_TRUE : JNI_FALSE;
 }
 
-extern "C"
-JNIEXPORT jboolean JNICALL
-Java_com_techted89_gameex_NativeScanner_dumpMemory(
-        JNIEnv* env,
-        jobject,
-        jint pid,
-        jlong from,
-        jlong to,
-        jstring path) {
-
-    const char* pathC = env->GetStringUTFChars(path, nullptr);
-    std::string dumpDir(pathC);
-    env->ReleaseStringUTFChars(path, pathC);
-
+bool dumpMemoryInternal(int pid, long from, long to, const std::string& dumpDir) {
     std::vector<MemoryRegion> regions = getMemoryRegions(pid);
     const size_t CHUNK_SIZE = 4096;
     std::vector<uint8_t> buffer(CHUNK_SIZE);
@@ -445,8 +429,27 @@ Java_com_techted89_gameex_NativeScanner_dumpMemory(
         }
         outFile.close();
     }
+    return true;
+}
 
-    return JNI_TRUE;
+extern "C"
+JNIEXPORT jboolean JNICALL
+Java_com_techted89_gameex_NativeScanner_dumpMemory(
+        JNIEnv* env,
+        jobject,
+        jint pid,
+        jlong from,
+        jlong to,
+        jstring path) {
+
+    if (path == nullptr) return JNI_FALSE;
+
+    const char* pathC = env->GetStringUTFChars(path, nullptr);
+    if (pathC == nullptr) return JNI_FALSE;
+    std::string dumpDir(pathC);
+    env->ReleaseStringUTFChars(path, pathC);
+
+    return dumpMemoryInternal(pid, from, to, dumpDir) ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C"
@@ -464,8 +467,20 @@ Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
         jobject,
         jint pid,
         jstring dumpPath) {
+
+    if (dumpPath == nullptr) return;
+
+    const char* pathC = env->GetStringUTFChars(dumpPath, nullptr);
+    if (pathC == nullptr) return;
+    std::string path(pathC);
+    env->ReleaseStringUTFChars(dumpPath, pathC);
+
     std::lock_guard<std::mutex> lock(searchResultsMutex);
     searchResults.clear();
+
+    // Perform dump for fuzzy scan baseline
+    dumpMemoryInternal(pid, 0, -1, path);
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Baseline Dumped to: %s", path.c_str());
 }
 
 extern "C"
@@ -550,6 +565,57 @@ Java_com_techted89_gameex_NativeScanner_filterMemory(
     searchResults.erase(it, searchResults.end());
 
     __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Filter Complete. Remaining: %zu", searchResults.size());
+    return (jint)searchResults.size();
+}
+
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_filterMemoryString(
+        JNIEnv* env,
+        jobject /* this */,
+        jint pid,
+        jstring queryString) {
+
+    if (queryString == nullptr) return 0;
+    const char* queryCStr = env->GetStringUTFChars(queryString, nullptr);
+    if (queryCStr == nullptr) return 0;
+    std::string query(queryCStr);
+    env->ReleaseStringUTFChars(queryString, queryCStr);
+
+    SearchCondition cond = parseSearchQuery(query);
+    std::lock_guard<std::mutex> lock(searchResultsMutex);
+
+    auto it = std::remove_if(searchResults.begin(), searchResults.end(), [&](jlong addr) {
+        int val = 0;
+        struct iovec local_iov = {&val, sizeof(int)};
+        struct iovec remote_iov = {(void*)(uintptr_t)addr, sizeof(int)};
+
+        ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+
+        if (bytesRead != sizeof(int)) {
+            return true;
+        }
+
+        bool match = false;
+        switch (cond.type) {
+            case EXACT:
+                match = (val == cond.value1);
+                break;
+            case RANGE:
+                match = (val >= cond.value1 && val <= cond.value2);
+                break;
+            case ENCRYPTED_XOR:
+                match = ((val ^ cond.xorKey) == cond.value1);
+                break;
+            default:
+                break;
+        }
+        return !match; // Remove if NOT match
+    });
+
+    searchResults.erase(it, searchResults.end());
+
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Filter String Complete. Remaining: %zu", searchResults.size());
     return (jint)searchResults.size();
 }
 

@@ -297,15 +297,26 @@ class FloatingOverlayService : Service() {
         }
 
         btnPauseGame.setOnClickListener {
-            // Toggle Pause/Resume
-            if (ProcessUtils.isProcessPaused(targetPid)) {
-                ProcessUtils.resumeProcess(targetPid)
-                btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_pause)
-                Toast.makeText(this, "Game Resumed", Toast.LENGTH_SHORT).show()
-            } else {
-                ProcessUtils.pauseProcess(targetPid)
-                btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_play)
-                Toast.makeText(this, "Game Paused", Toast.LENGTH_SHORT).show()
+            btnPauseGame.isEnabled = false
+            serviceScope.launch(Dispatchers.IO) {
+                // Toggle Pause/Resume
+                val isPaused = ProcessUtils.isProcessPaused(targetPid)
+                if (isPaused) {
+                    ProcessUtils.resumeProcess(targetPid)
+                } else {
+                    ProcessUtils.pauseProcess(targetPid)
+                }
+
+                withContext(Dispatchers.Main) {
+                    btnPauseGame.isEnabled = true
+                    if (isPaused) {
+                        btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_pause)
+                        Toast.makeText(this@FloatingOverlayService, "Game Resumed", Toast.LENGTH_SHORT).show()
+                    } else {
+                        btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_play)
+                        Toast.makeText(this@FloatingOverlayService, "Game Paused", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         }
 
@@ -336,8 +347,7 @@ class FloatingOverlayService : Service() {
                 var scanError: String? = null
                 val results = try {
                     if (isNext) {
-                        val intVal = valueStr.toIntOrNull() ?: 0
-                        NativeScanner.filterMemory(targetPid, intVal)
+                        NativeScanner.filterMemoryString(targetPid, valueStr)
                     } else {
                         NativeScanner.searchMemoryString(targetPid, valueStr)
                     }
@@ -444,6 +454,9 @@ class FloatingOverlayService : Service() {
             serviceScope.launch(Dispatchers.IO) {
                 try {
                     File(path).writeText(scriptContent)
+                    // Write current script input to the .asm file before assembling
+                    java.io.File(path).writeText(scriptContent)
+
                     NativeScanner.assembleScript(path, outPath)
 
                     val assembledSize = if (File(outPath).exists()) File(outPath).length() else 0

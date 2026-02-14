@@ -1,30 +1,31 @@
 package com.techted89.gameex.utils
 
-import java.io.File
+import java.io.BufferedReader
+import java.io.DataOutputStream
+import java.io.InputStreamReader
 
 object ProcessUtils {
 
     fun isProcessPaused(pid: Int): Boolean {
         var process: Process? = null
         return try {
-            // Use 'su' to read /proc/[pid]/stat to bypass permission issues on newer Android
             process = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat /proc/$pid/stat"))
 
-            val content = process.inputStream.bufferedReader().use { it.readLine() }
+            val content = process.inputStream.bufferedReader().use { reader ->
+                reader.readLine()
+            }
+
             process.waitFor()
 
             if (content != null) {
                 // The state is the 3rd field in /proc/pid/stat
-                // Format: PID (comm) state ...
-                // comm can contain spaces and parens, so find the last ')'
-                val lastParenIndex = content.lastIndexOf(')')
-                if (lastParenIndex != -1 && lastParenIndex + 2 < content.length) {
-                    val afterName = content.substring(lastParenIndex + 2)
-                    val parts = afterName.split(" ")
-                    if (parts.isNotEmpty()) {
-                        val state = parts[0]
-                        return state == "T" // T = Stopped
-                    }
+                // PID (comm) state ...
+                // Note: comm can contain spaces and parentheses.
+                // Robust parsing finds the last ')' and parses from there.
+                val lastParen = content.lastIndexOf(')')
+                if (lastParen != -1 && lastParen + 2 < content.length) {
+                    val stateChar = content[lastParen + 2]
+                    return stateChar == 'T' // T = Stopped (on a signal) or (before Linux 2.6.33) trace stopped
                 }
             }
             false

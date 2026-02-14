@@ -44,6 +44,15 @@ external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
     external fun filterMemory(pid: Int, value: Int): Int
 
     /**
+     * Filters the current search results using a query string.
+     *
+     * @param pid The target process ID.
+     * @param query The query string (e.g., "100~200").
+     * @return The number of remaining matches.
+     */
+    external fun filterMemoryString(pid: Int, query: String): Int
+
+    /**
      * Retrieves a list of loaded modules (libraries) in the target process.
      *
      * @param pid The target process ID.

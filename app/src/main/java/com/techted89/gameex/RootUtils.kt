@@ -52,7 +52,9 @@ object RootUtils {
         val processes = mutableListOf<ProcessInfo>()
         try {
             // Use ProcessBuilder for safer execution and simpler stream handling
-            val process = ProcessBuilder("su", "-c", "ps -A").start()
+            val process = ProcessBuilder("su", "-c", "ps -A")
+                .redirectErrorStream(true)
+                .start()
 
             process.inputStream.bufferedReader().use { reader ->
                 processes.addAll(parsePsOutput(reader))
@@ -67,7 +69,9 @@ object RootUtils {
 
     fun executeCommand(cmd: String): String? {
         return try {
-            val process = ProcessBuilder("su", "-c", cmd).start()
+            val process = ProcessBuilder("su", "-c", cmd)
+                .redirectErrorStream(true)
+                .start()
             val output = process.inputStream.bufferedReader().use { it.readText() }
             process.waitFor()
             if (process.exitValue() == 0) output.trim() else null

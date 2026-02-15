@@ -90,12 +90,15 @@ SearchCondition parseSearchQuery(const std::string& query) {
  */
 std::vector<MemoryRegion> getMemoryRegions(int pid) {
     std::vector<MemoryRegion> regions;
+    if (pid <= 0) return regions;
+
     // Use su via popen to bypass permission restrictions on reading other process maps
-    std::string cmd = "su -c 'cat /proc/" + std::to_string(pid) + "/maps'";
-    FILE* mapsPipe = popen(cmd.c_str(), "r");
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "su -c 'cat /proc/%d/maps'", pid);
+    FILE* mapsPipe = popen(cmd, "r");
 
     if (!mapsPipe) {
-        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Failed to open maps via su: %s", cmd.c_str());
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Failed to open maps via su: %s", cmd);
         return regions;
     }
 
@@ -117,18 +120,20 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
         int parsed = sscanf(line.c_str(), "%" SCNxPTR "-%" SCNxPTR " %4s %*s %9s %ld%n",
                &region.startAddress, &region.endAddress, permissions, dev, &inode, &pos);
 
+        // Safety check for path extraction manually since %s in sscanf is unsafe
+        if (parsed >= 5 && pos > 0 && (size_t)pos < line.length()) {
+             const char* p = line.c_str() + pos;
+             while (*p == ' ' || *p == '\t') p++;
+             strncpy(path, p, sizeof(path) - 1);
+             path[sizeof(path) - 1] = '\0';
+             size_t len = strlen(path);
+             if (len > 0 && path[len-1] == '\n') path[len-1] = '\0';
+        } else {
+             path[0] = '\0';
+        }
+
         if (parsed < 5) continue;
 
-        if (pos > 0 && (size_t)pos < line.length()) {
-            const char* p = line.c_str() + pos;
-            while (*p == ' ' || *p == '\t') p++;
-            strncpy(path, p, sizeof(path) - 1);
-            path[sizeof(path) - 1] = '\0';
-            size_t len = strlen(path);
-            if (len > 0 && path[len-1] == '\n') path[len-1] = '\0';
-        } else {
-            path[0] = '\0';
-        }
 
         region.isReadable = (permissions[0] == 'r');
         region.isWritable = (permissions[1] == 'w');
@@ -647,27 +652,30 @@ Java_com_techted89_gameex_NativeScanner_getLoadedModules(
         jint pid) {
 
     std::set<std::string> modules;
-    std::string cmd = "su -c 'cat /proc/" + std::to_string(pid) + "/maps'";
-    FILE* mapsPipe = popen(cmd.c_str(), "r");
+    if (pid > 0) {
+        char cmd[256];
+        snprintf(cmd, sizeof(cmd), "su -c 'cat /proc/%d/maps'", pid);
+        FILE* mapsPipe = popen(cmd, "r");
 
-    if (mapsPipe) {
-        char lineBuf[1024];
-        while (fgets(lineBuf, sizeof(lineBuf), mapsPipe)) {
+        if (mapsPipe) {
+            char lineBuf[1024];
+            while (fgets(lineBuf, sizeof(lineBuf), mapsPipe)) {
             std::string line(lineBuf);
              // Trim newline if present
             if (!line.empty() && line.back() == '\n') {
                 line.pop_back();
             }
 
-            if (line.find(".so") != std::string::npos) {
-                size_t lastSpace = line.find_last_of(" \t");
-                if (lastSpace != std::string::npos && lastSpace + 1 < line.length()) {
-                     std::string path = line.substr(lastSpace + 1);
-                     modules.insert(path);
+                if (line.find(".so") != std::string::npos) {
+                    size_t lastSpace = line.find_last_of(" \t");
+                    if (lastSpace != std::string::npos && lastSpace + 1 < line.length()) {
+                         std::string path = line.substr(lastSpace + 1);
+                         modules.insert(path);
+                    }
                 }
             }
+            pclose(mapsPipe);
         }
-        pclose(mapsPipe);
     }
 
     jclass stringClass = env->FindClass("java/lang/String");

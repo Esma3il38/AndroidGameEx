@@ -17,6 +17,8 @@
 #include <sys/ptrace.h>
 #include <sys/wait.h>
 #include <errno.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 // Define the structure of a memory region
 struct MemoryRegion {
@@ -84,27 +86,66 @@ SearchCondition parseSearchQuery(const std::string& query) {
     return cond;
 }
 
+std::string readProcMaps(int pid) {
+    if (pid <= 0) return "";
+
+    int pipefd[2];
+    if (pipe(pipefd) == -1) {
+        return "";
+    }
+
+    pid_t child = fork();
+    if (child == -1) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return "";
+    }
+
+    if (child == 0) {
+        // Child
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[1]);
+
+        std::string path = "/proc/" + std::to_string(pid) + "/maps";
+        std::string cmd = "cat " + path;
+
+        // Execute su -c "cat /proc/pid/maps"
+        // Using execlp ensures no shell expansion vulnerability beyond what su itself does
+        execlp("su", "su", "-c", cmd.c_str(), (char *)NULL);
+        _exit(127);
+    }
+
+    // Parent
+    close(pipefd[1]);
+
+    std::string output;
+    char buffer[4096];
+    ssize_t count;
+    while ((count = read(pipefd[0], buffer, sizeof(buffer))) > 0) {
+        output.append(buffer, count);
+    }
+    close(pipefd[0]);
+    waitpid(child, nullptr, 0);
+
+    return output;
+}
+
 /**
  * @brief Collects readable and writable memory regions for a given process.
  */
 std::vector<MemoryRegion> getMemoryRegions(int pid) {
     std::vector<MemoryRegion> regions;
-    if (pid <= 0) return regions;
-
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd), "su -c 'cat /proc/%d/maps'", pid);
-    FILE* mapsPipe = popen(cmd, "r");
-
-    if (!mapsPipe) {
-        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Failed to open maps via su: %s", cmd);
+    std::string mapsData = readProcMaps(pid);
+    if (mapsData.empty()) {
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Failed to read maps for PID: %d", pid);
         return regions;
     }
 
-    char lineBuf[2048];
-    while (fgets(lineBuf, sizeof(lineBuf), mapsPipe)) {
-        std::string line(lineBuf);
-        // Trim newline
-        if (!line.empty() && line.back() == '\n') line.pop_back();
+    std::stringstream ss(mapsData);
+    std::string line;
+    while (std::getline(ss, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back(); // Handle CRLF if any
 
         MemoryRegion region;
         char permissions[5];
@@ -145,7 +186,6 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
              }
         }
     }
-    pclose(mapsPipe);
     return regions;
 }
 
@@ -649,26 +689,21 @@ Java_com_techted89_gameex_NativeScanner_getLoadedModules(
         jint pid) {
 
     std::set<std::string> modules;
-    if (pid > 0) {
-        char cmd[256];
-        snprintf(cmd, sizeof(cmd), "su -c 'cat /proc/%d/maps'", pid);
-        FILE* mapsPipe = popen(cmd, "r");
+    std::string mapsData = readProcMaps(pid);
 
-        if (mapsPipe) {
-            char lineBuf[2048];
-            while (fgets(lineBuf, sizeof(lineBuf), mapsPipe)) {
-                std::string line(lineBuf);
-                if (!line.empty() && line.back() == '\n') line.pop_back();
+    if (!mapsData.empty()) {
+        std::stringstream ss(mapsData);
+        std::string line;
+        while (std::getline(ss, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
 
-                if (line.find(".so") != std::string::npos) {
-                    size_t lastSpace = line.find_last_of(" \t");
-                    if (lastSpace != std::string::npos && lastSpace + 1 < line.length()) {
-                         std::string path = line.substr(lastSpace + 1);
-                         modules.insert(path);
-                    }
+            if (line.find(".so") != std::string::npos) {
+                size_t lastSpace = line.find_last_of(" \t");
+                if (lastSpace != std::string::npos && lastSpace + 1 < line.length()) {
+                     std::string path = line.substr(lastSpace + 1);
+                     modules.insert(path);
                 }
             }
-            pclose(mapsPipe);
         }
     }
 

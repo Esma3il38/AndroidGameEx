@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
+import com.techted89.gameex.RootUtils
 import java.io.File
 
 object SystemUtils {
@@ -25,10 +26,18 @@ object SystemUtils {
 
     fun getTargetPackage(pid: Int): String? {
         return try {
-            val cmdline = File("/proc/$pid/cmdline").readText().trim()
-            // cmdline strings are null-terminated, remove nulls
-            cmdline.replace("\u0000", "")
+            // Use su via RootUtils to read cmdline of other processes
+            // Reading /proc directly requires root if targeting another user's process or due to SELinux
+            val cmdline = RootUtils.executeCommand("cat /proc/$pid/cmdline")
+
+            if (cmdline != null && cmdline.isNotEmpty()) {
+                // cmdline strings are null-terminated, remove nulls
+                cmdline.replace("\u0000", "")
+            } else {
+                null
+            }
         } catch (e: Exception) {
+            e.printStackTrace()
             null
         }
     }

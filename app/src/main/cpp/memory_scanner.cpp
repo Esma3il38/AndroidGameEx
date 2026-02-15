@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <fstream>
+#include <cstdio>
 #include <sstream>
 #include <sys/uio.h>
 #include <unistd.h>
@@ -89,21 +90,28 @@ SearchCondition parseSearchQuery(const std::string& query) {
  */
 std::vector<MemoryRegion> getMemoryRegions(int pid) {
     std::vector<MemoryRegion> regions;
-    std::string mapsPath = "/proc/" + std::to_string(pid) + "/maps";
-    std::ifstream mapsFile(mapsPath);
+    // Use su via popen to bypass permission restrictions on reading other process maps
+    std::string cmd = "su -c 'cat /proc/" + std::to_string(pid) + "/maps'";
+    FILE* mapsPipe = popen(cmd.c_str(), "r");
 
-    if (!mapsFile.is_open()) {
-        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Failed to open maps: %s", mapsPath.c_str());
+    if (!mapsPipe) {
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Failed to open maps via su: %s", cmd.c_str());
         return regions;
     }
 
-    std::string line;
-    while (std::getline(mapsFile, line)) {
+    char lineBuf[1024];
+    while (fgets(lineBuf, sizeof(lineBuf), mapsPipe)) {
+        std::string line(lineBuf);
+        // Trim newline if present
+        if (!line.empty() && line.back() == '\n') {
+            line.pop_back();
+        }
+
         MemoryRegion region;
         char permissions[5];
         char dev[10];
         long inode;
-        char path[256] = {0};
+        char path[1024] = {0};
         int pos = 0;
 
         int parsed = sscanf(line.c_str(), "%" SCNxPTR "-%" SCNxPTR " %4s %*s %9s %ld%n",
@@ -135,6 +143,7 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
              }
         }
     }
+    pclose(mapsPipe);
     return regions;
 }
 
@@ -638,12 +647,18 @@ Java_com_techted89_gameex_NativeScanner_getLoadedModules(
         jint pid) {
 
     std::set<std::string> modules;
-    std::string mapsPath = "/proc/" + std::to_string(pid) + "/maps";
-    std::ifstream mapsFile(mapsPath);
+    std::string cmd = "su -c 'cat /proc/" + std::to_string(pid) + "/maps'";
+    FILE* mapsPipe = popen(cmd.c_str(), "r");
 
-    if (mapsFile.is_open()) {
-        std::string line;
-        while (std::getline(mapsFile, line)) {
+    if (mapsPipe) {
+        char lineBuf[1024];
+        while (fgets(lineBuf, sizeof(lineBuf), mapsPipe)) {
+            std::string line(lineBuf);
+             // Trim newline if present
+            if (!line.empty() && line.back() == '\n') {
+                line.pop_back();
+            }
+
             if (line.find(".so") != std::string::npos) {
                 size_t lastSpace = line.find_last_of(" \t");
                 if (lastSpace != std::string::npos && lastSpace + 1 < line.length()) {
@@ -652,6 +667,7 @@ Java_com_techted89_gameex_NativeScanner_getLoadedModules(
                 }
             }
         }
+        pclose(mapsPipe);
     }
 
     jclass stringClass = env->FindClass("java/lang/String");

@@ -2,7 +2,6 @@
 #include <string>
 #include <vector>
 #include <fstream>
-#include <cstdio>
 #include <sstream>
 #include <sys/uio.h>
 #include <unistd.h>
@@ -92,7 +91,6 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
     std::vector<MemoryRegion> regions;
     if (pid <= 0) return regions;
 
-    // Use su via popen to bypass permission restrictions on reading other process maps
     char cmd[256];
     snprintf(cmd, sizeof(cmd), "su -c 'cat /proc/%d/maps'", pid);
     FILE* mapsPipe = popen(cmd, "r");
@@ -102,38 +100,37 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
         return regions;
     }
 
-    char lineBuf[1024];
+    char lineBuf[2048];
     while (fgets(lineBuf, sizeof(lineBuf), mapsPipe)) {
         std::string line(lineBuf);
-        // Trim newline if present
-        if (!line.empty() && line.back() == '\n') {
-            line.pop_back();
-        }
+        // Trim newline
+        if (!line.empty() && line.back() == '\n') line.pop_back();
 
         MemoryRegion region;
         char permissions[5];
-        char dev[10];
+        char dev[16];
         long inode;
         char path[1024] = {0};
         int pos = 0;
 
-        int parsed = sscanf(line.c_str(), "%" SCNxPTR "-%" SCNxPTR " %4s %*s %9s %ld%n",
+        // sscanf is dangerous for strings, we parse fixed fields first
+        int parsed = sscanf(line.c_str(), "%" SCNxPTR "-%" SCNxPTR " %4s %*s %15s %ld%n",
                &region.startAddress, &region.endAddress, permissions, dev, &inode, &pos);
-
-        // Safety check for path extraction manually since %s in sscanf is unsafe
-        if (parsed >= 5 && pos > 0 && (size_t)pos < line.length()) {
-             const char* p = line.c_str() + pos;
-             while (*p == ' ' || *p == '\t') p++;
-             strncpy(path, p, sizeof(path) - 1);
-             path[sizeof(path) - 1] = '\0';
-             size_t len = strlen(path);
-             if (len > 0 && path[len-1] == '\n') path[len-1] = '\0';
-        } else {
-             path[0] = '\0';
-        }
 
         if (parsed < 5) continue;
 
+        // Manually extract path to avoid buffer overflow with %s
+        if (pos > 0 && (size_t)pos < line.length()) {
+            const char* p = line.c_str() + pos;
+            while (*p == ' ' || *p == '\t') p++;
+
+            // Safe copy
+            size_t i = 0;
+            while (*p && i < sizeof(path) - 1) {
+                path[i++] = *p++;
+            }
+            path[i] = '\0';
+        }
 
         region.isReadable = (permissions[0] == 'r');
         region.isWritable = (permissions[1] == 'w');
@@ -658,13 +655,10 @@ Java_com_techted89_gameex_NativeScanner_getLoadedModules(
         FILE* mapsPipe = popen(cmd, "r");
 
         if (mapsPipe) {
-            char lineBuf[1024];
+            char lineBuf[2048];
             while (fgets(lineBuf, sizeof(lineBuf), mapsPipe)) {
-            std::string line(lineBuf);
-             // Trim newline if present
-            if (!line.empty() && line.back() == '\n') {
-                line.pop_back();
-            }
+                std::string line(lineBuf);
+                if (!line.empty() && line.back() == '\n') line.pop_back();
 
                 if (line.find(".so") != std::string::npos) {
                     size_t lastSpace = line.find_last_of(" \t");

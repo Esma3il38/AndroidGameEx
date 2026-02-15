@@ -30,17 +30,16 @@ object RootUtils {
         while (line != null) {
             // Typical ps output: USER PID ... NAME
             val parts = line.trim().split(WHITESPACE_REGEX)
-            // Ensure enough columns for PID (index 1) and Name (last)
-            // PID is usually at index 1. Toybox ps has 8 columns.
-            if (parts.size >= 8) {
+            if (parts.size >= 9) {
+                // Assuming standard android ps output where PID is usually 2nd column
+                // and Name is last column.
                 val pidStr = parts[1]
                 val name = parts.last()
                 try {
                     val pid = pidStr.toInt()
-                    // Filter out header (where pidStr is "PID")
                     processes.add(ProcessInfo(pid, name))
                 } catch (e: NumberFormatException) {
-                    // Ignore lines that don't have a valid integer PID
+                    // Ignore header or lines that don't match expected format
                 }
             }
             line = reader.readLine()
@@ -50,11 +49,16 @@ object RootUtils {
 
     fun getRunningProcesses(): List<ProcessInfo> {
         val processes = mutableListOf<ProcessInfo>()
+        // Execute ps -A via su to see all processes
+        var process: Process? = null
         try {
-            // Use ProcessBuilder for safer execution and simpler stream handling
-            val process = ProcessBuilder("su", "-c", "ps -A")
-                .redirectErrorStream(true)
-                .start()
+            process = Runtime.getRuntime().exec("su")
+
+            DataOutputStream(process.outputStream).use { os ->
+                os.writeBytes("ps -A\n")
+                os.writeBytes("exit\n")
+                os.flush()
+            }
 
             process.inputStream.bufferedReader().use { reader ->
                 processes.addAll(parsePsOutput(reader))
@@ -63,21 +67,11 @@ object RootUtils {
             process.waitFor()
         } catch (e: Exception) {
             e.printStackTrace()
+            // Fallback to non-root ps if su fails?
+            // For now, return what we have or empty list which prompts user to check root.
+        } finally {
+            process?.destroy()
         }
         return processes
-    }
-
-    fun executeCommand(cmd: String): String? {
-        return try {
-            val process = ProcessBuilder("su", "-c", cmd)
-                .redirectErrorStream(true)
-                .start()
-            val output = process.inputStream.bufferedReader().use { it.readText() }
-            process.waitFor()
-            if (process.exitValue() == 0) output.trim() else null
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
     }
 }

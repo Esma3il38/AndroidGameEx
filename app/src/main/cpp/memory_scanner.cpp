@@ -18,7 +18,6 @@
 #include <sys/wait.h>
 #include <errno.h>
 #include <unistd.h>
-#include <fcntl.h>
 
 // Define the structure of a memory region
 struct MemoryRegion {

@@ -322,6 +322,7 @@ Java_com_techted89_gameex_NativeScanner_installHook(
         jlong targetAddress,
         jlong replacementAddress) {
 
+#if defined(__aarch64__)
     if (targetAddress == 0 || replacementAddress == 0) return JNI_FALSE;
 
     // ARM64 Absolute Jump Trampoline (16 bytes)
@@ -364,6 +365,10 @@ Java_com_techted89_gameex_NativeScanner_installHook(
     ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
 
     return success ? JNI_TRUE : JNI_FALSE;
+#else
+    __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Hook installation only supported on ARM64");
+    return JNI_FALSE;
+#endif
 }
 
 extern "C" /**

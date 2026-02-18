@@ -36,6 +36,10 @@ std::mutex searchResultsMutex;
 std::map<jlong, std::vector<uint8_t>> originalBytesMap;
 std::mutex originalBytesMutex;
 
+// Global buffer for Fuzzy Scan baseline (Address, Value)
+std::vector<std::pair<jlong, int>> fuzzyBaseline;
+std::mutex fuzzyMutex;
+
 enum SearchType {
     EXACT,
     RANGE,
@@ -486,12 +490,118 @@ Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
     std::string path(pathC);
     env->ReleaseStringUTFChars(dumpPath, pathC);
 
-    std::lock_guard<std::mutex> lock(searchResultsMutex);
-    searchResults.clear();
+    // Clear previous results
+    {
+        std::lock_guard<std::mutex> lock(searchResultsMutex);
+        searchResults.clear();
+    }
+
+    // Populate fuzzy baseline
+    {
+        std::lock_guard<std::mutex> lock(fuzzyMutex);
+        fuzzyBaseline.clear();
+
+        std::vector<MemoryRegion> regions = getMemoryRegions(pid);
+        const size_t CHUNK_SIZE = 4096;
+        std::vector<uint8_t> buffer(CHUNK_SIZE);
+
+        for (const auto& region : regions) {
+            uintptr_t currentAddr = region.startAddress;
+            while (currentAddr < region.endAddress) {
+                uintptr_t remaining = region.endAddress - currentAddr;
+                size_t readSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : (size_t)remaining;
+
+                struct iovec local_iov = {buffer.data(), readSize};
+                struct iovec remote_iov = {(void*)currentAddr, readSize};
+
+                ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+
+                if (bytesRead >= 4) {
+                    size_t limit = (size_t)bytesRead;
+                    for (size_t i = 0; i + 4 <= limit; i += 4) {
+                        int val;
+                        std::memcpy(&val, &buffer[i], sizeof(int));
+                        // Store everything for fuzzy scan baseline
+                        fuzzyBaseline.push_back({(jlong)(currentAddr + i), val});
+                    }
+                }
+                currentAddr += readSize;
+            }
+        }
+        __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Baseline: %zu entries", fuzzyBaseline.size());
+    }
 
     // Perform dump for fuzzy scan baseline
     dumpMemoryInternal(pid, 0, -1, path);
     __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Baseline Dumped to: %s", path.c_str());
+}
+
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_filterFuzzy(
+        JNIEnv* env,
+        jobject /* this */,
+        jint pid,
+        jint mode) {
+
+    // Mode: 0=CHANGED, 1=UNCHANGED, 2=INCREASED, 3=DECREASED
+
+    std::lock_guard<std::mutex> lockResult(searchResultsMutex);
+    std::lock_guard<std::mutex> lockFuzzy(fuzzyMutex);
+
+    if (fuzzyBaseline.empty()) {
+        return 0;
+    }
+
+    auto it = std::remove_if(fuzzyBaseline.begin(), fuzzyBaseline.end(), [&](std::pair<jlong, int>& entry) {
+        jlong addr = entry.first;
+        int oldVal = entry.second;
+
+        int currentVal = 0;
+        struct iovec local_iov = {&currentVal, sizeof(int)};
+        struct iovec remote_iov = {(void*)(uintptr_t)addr, sizeof(int)};
+
+        ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+
+        if (bytesRead != sizeof(int)) {
+            return true; // Remove unreadable
+        }
+
+        bool match = false;
+        switch (mode) {
+            case 0: // CHANGED
+                match = (currentVal != oldVal);
+                break;
+            case 1: // UNCHANGED
+                match = (currentVal == oldVal);
+                break;
+            case 2: // INCREASED
+                match = (currentVal > oldVal);
+                break;
+            case 3: // DECREASED
+                match = (currentVal < oldVal);
+                break;
+            default:
+                break;
+        }
+
+        if (match) {
+            entry.second = currentVal; // Update value for next comparison
+            return false; // Keep
+        }
+        return true; // Remove
+    });
+
+    fuzzyBaseline.erase(it, fuzzyBaseline.end());
+
+    // Populate searchResults from remaining fuzzyBaseline
+    searchResults.clear();
+    for (const auto& entry : fuzzyBaseline) {
+        searchResults.push_back(entry.first);
+    }
+
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Filter Complete. Remaining: %zu", searchResults.size());
+    return (jint)searchResults.size();
 }
 
 extern "C"

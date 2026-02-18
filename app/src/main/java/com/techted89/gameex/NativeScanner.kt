@@ -35,6 +35,15 @@ external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
     external fun startFuzzyScan(pid: Int, dumpPath: String)
 
     /**
+     * Filters the current fuzzy scan results.
+     *
+     * @param pid The target process ID.
+     * @param mode Filter mode: 0=CHANGED, 1=UNCHANGED, 2=INCREASED, 3=DECREASED.
+     * @return The number of remaining matches.
+     */
+    external fun filterFuzzy(pid: Int, mode: Int): Int
+
+    /**
      * Filters the current search results, keeping only those that match the new value.
      *
      * @param pid The target process ID.

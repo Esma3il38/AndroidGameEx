@@ -283,7 +283,7 @@ class FloatingOverlayService : Service() {
 
         // Search Mode Toggle
         rgSearchMode.setOnCheckedChangeListener { _, checkedId ->
-            isFuzzyMode = (checkedId == R.id.rb_fuzzy)
+            isFuzzyMode = checkedId == R.id.rb_fuzzy
             if (isFuzzyMode) {
                 tilSearchValue.visibility = View.GONE
                 chipGroupType.visibility = View.GONE // Fuzzy usually implies unknown type, or float/dword. We'll hide for simplicity.

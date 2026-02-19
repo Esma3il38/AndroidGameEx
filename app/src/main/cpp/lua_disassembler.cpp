@@ -5,7 +5,6 @@
 #include <sstream>
 #include <iomanip>
 #include <cstdio>
-#include <cstdint>
 
 // Lua 5.3 Opcode Map
 const char* lua_opnames[] = {

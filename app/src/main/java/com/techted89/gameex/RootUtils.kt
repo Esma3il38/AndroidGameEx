@@ -75,7 +75,7 @@ object RootUtils {
                     val appInfo = pm.getApplicationInfo(info.processName, 0)
                     val appName = pm.getApplicationLabel(appInfo).toString()
                     val icon = pm.getApplicationIcon(appInfo)
-                    val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                    val isSystem = appInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0
                     info.copy(appName = appName, icon = icon, isSystemApp = isSystem)
                 } catch (e: PackageManager.NameNotFoundException) {
                     // Not an app, keep defaults (isSystemApp=true is reasonable for native processes)

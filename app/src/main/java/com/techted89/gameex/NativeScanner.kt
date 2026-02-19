@@ -15,6 +15,12 @@ object NativeScanner {
     const val TYPE_AUTO = 64
     const val TYPE_XOR = 128
 
+    // Fuzzy Scan Modes
+    const val FUZZY_CHANGED = 0
+    const val FUZZY_UNCHANGED = 1
+    const val FUZZY_INCREASED = 2
+    const val FUZZY_DECREASED = 3
+
     /**
  * Read a sequence of bytes from the memory of a target process.
  *
@@ -48,9 +54,17 @@ object NativeScanner {
     external fun searchMemory(pid: Int, valueStr: String, type: Int): Int
 
     /**
-     * Starts a fuzzy scan by dumping current memory snapshot.
+     * Starts a fuzzy scan by snapshotting relevant memory regions.
      */
-    external fun startFuzzyScan(pid: Int, dumpPath: String)
+    external fun startFuzzyScan(pid: Int)
+
+    /**
+     * Filters the fuzzy snapshot against current memory based on the mode.
+     * @param pid Target Process ID
+     * @param mode Comparison mode (FUZZY_CHANGED, etc.)
+     * @return Number of results found.
+     */
+    external fun filterFuzzy(pid: Int, mode: Int): Int
 
     /**
      * Filters the current search results, keeping only those that match the new value.

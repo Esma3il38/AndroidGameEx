@@ -31,9 +31,18 @@ struct MemoryRegion {
     bool isExecutable;
 };
 
+struct SnapshotRegion {
+    uintptr_t startAddress;
+    std::vector<uint8_t> data;
+};
+
 // Global buffer to store found results (Address List)
 std::vector<jlong> searchResults;
 std::mutex searchResultsMutex;
+
+// Fuzzy Scan Snapshot Buffer
+std::vector<SnapshotRegion> fuzzySnapshots;
+std::mutex fuzzyMutex;
 
 // Global map to store original bytes for unhooking
 // Key: Target Address, Value: Original Bytes
@@ -56,6 +65,13 @@ enum DataType {
     TYPE_DOUBLE = 32,
     TYPE_AUTO = 64,
     TYPE_XOR = 128
+};
+
+enum FuzzyMode {
+    FUZZY_CHANGED = 0,
+    FUZZY_UNCHANGED = 1,
+    FUZZY_INCREASED = 2,
+    FUZZY_DECREASED = 3
 };
 
 struct SearchCondition {
@@ -452,6 +468,152 @@ Java_com_techted89_gameex_NativeScanner_filterMemoryString(
     return Java_com_techted89_gameex_NativeScanner_filterMemory(env, thiz, pid, queryString, TYPE_DWORD);
 }
 
+// --- Fuzzy Scan Logic ---
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
+        JNIEnv* env,
+        jobject,
+        jint pid) {
+
+    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
+    const size_t CHUNK_SIZE = 64 * 1024; // 64KB chunks for snapshots
+    std::vector<uint8_t> buffer(CHUNK_SIZE);
+
+    std::vector<SnapshotRegion> localSnapshots;
+
+    for (const auto& region : regions) {
+        uintptr_t current = region.startAddress;
+        while (current < region.endAddress) {
+            size_t readSize = std::min((size_t)(region.endAddress - current), CHUNK_SIZE);
+            struct iovec local = {buffer.data(), readSize};
+            struct iovec remote = {(void*)current, readSize};
+
+            ssize_t bytes = process_vm_readv(pid, &local, 1, &remote, 1, 0);
+            if (bytes > 0) {
+                SnapshotRegion snap;
+                snap.startAddress = current;
+                snap.data.assign(buffer.begin(), buffer.begin() + bytes);
+                localSnapshots.push_back(snap);
+            }
+            current += readSize;
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(fuzzyMutex);
+        fuzzySnapshots = std::move(localSnapshots);
+        // Explicit sort to enable binary search/lookups if needed later, though sequential access is typical
+        std::sort(fuzzySnapshots.begin(), fuzzySnapshots.end(), [](const SnapshotRegion& a, const SnapshotRegion& b){
+            return a.startAddress < b.startAddress;
+        });
+    }
+
+    // Clear previous results as we are starting a new fuzzy scan
+    {
+        std::lock_guard<std::mutex> lock(searchResultsMutex);
+        searchResults.clear();
+        // Optimistically add ALL addresses? No, that's too many.
+        // We wait for the first filter step (CHANGED/UNCHANGED) to populate searchResults.
+    }
+
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Started. Snapshot size: %zu blocks", fuzzySnapshots.size());
+}
+
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_filterFuzzy(
+        JNIEnv* env,
+        jobject,
+        jint pid,
+        jint mode) {
+
+    std::lock_guard<std::mutex> fuzzyLock(fuzzyMutex);
+    std::lock_guard<std::mutex> resultsLock(searchResultsMutex);
+
+    std::vector<jlong> newResults;
+    const size_t ALIGNMENT = 4; // Assume DWORD/Float alignment for fuzzy scan default
+
+    // If searchResults is empty, we scan the entire snapshot (First Filter Step)
+    bool firstFilter = searchResults.empty();
+
+    if (firstFilter) {
+        for (const auto& snap : fuzzySnapshots) {
+            size_t size = snap.data.size();
+            std::vector<uint8_t> currentMem(size);
+            struct iovec local = {currentMem.data(), size};
+            struct iovec remote = {(void*)snap.startAddress, size};
+
+            ssize_t bytes = process_vm_readv(pid, &local, 1, &remote, 1, 0);
+            if (bytes != (ssize_t)size) continue;
+
+            for (size_t i = 0; i + 4 <= size; i += ALIGNMENT) {
+                int oldVal, newVal;
+                memcpy(&oldVal, &snap.data[i], 4);
+                memcpy(&newVal, &currentMem[i], 4);
+
+                bool match = false;
+                switch (mode) {
+                    case FUZZY_CHANGED: match = (oldVal != newVal); break;
+                    case FUZZY_UNCHANGED: match = (oldVal == newVal); break;
+                    case FUZZY_INCREASED: match = (newVal > oldVal); break;
+                    case FUZZY_DECREASED: match = (newVal < oldVal); break;
+                }
+
+                if (match) {
+                    newResults.push_back((jlong)(snap.startAddress + i));
+                    if (newResults.size() >= 100000) goto finish_fuzzy;
+                }
+            }
+        }
+    } else {
+        // Refine existing results
+        for (jlong addr : searchResults) {
+            // Find corresponding snapshot block
+            // Simple linear search or intelligent lookup.
+            // Given sorted snapshots, we can binary search.
+            auto it = std::lower_bound(fuzzySnapshots.begin(), fuzzySnapshots.end(), addr,
+                [](const SnapshotRegion& region, jlong address) {
+                    return region.startAddress + region.data.size() <= (uintptr_t)address;
+                });
+
+            if (it != fuzzySnapshots.end() && addr >= (jlong)it->startAddress && addr < (jlong)(it->startAddress + it->data.size())) {
+                size_t offset = addr - it->startAddress;
+                int oldVal;
+                memcpy(&oldVal, &it->data[offset], 4);
+
+                int newVal;
+                struct iovec local = {&newVal, 4};
+                struct iovec remote = {(void*)addr, 4};
+                if (process_vm_readv(pid, &local, 1, &remote, 1, 0) == 4) {
+                    bool match = false;
+                    switch (mode) {
+                        case FUZZY_CHANGED: match = (oldVal != newVal); break;
+                        case FUZZY_UNCHANGED: match = (oldVal == newVal); break;
+                        case FUZZY_INCREASED: match = (newVal > oldVal); break;
+                        case FUZZY_DECREASED: match = (newVal < oldVal); break;
+                    }
+                    if (match) newResults.push_back(addr);
+                }
+            }
+        }
+    }
+
+finish_fuzzy:
+    searchResults = std::move(newResults);
+
+    // Update snapshots for NEXT comparison?
+    // Usually fuzzy search compares against "Last Scan".
+    // So we should update fuzzySnapshots with current values for the kept addresses.
+    // However, updating entire blocks is heavy.
+    // GameGuardian strategy: "Changed since last scan" vs "Changed since start".
+    // For simplicity here, we compare against INITIAL snapshot.
+    // To support "Changed since last", we would need to update the snapshot.
+
+    return (jint)searchResults.size();
+}
+
 
 // --- Keep Existing Hooks/Dump/Utils ---
 
@@ -613,25 +775,7 @@ Java_com_techted89_gameex_NativeScanner_enableStealthMode(JNIEnv*, jobject) {
     __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Stealth Mode: Activated");
 }
 
-extern "C"
-JNIEXPORT void JNICALL
-Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
-        JNIEnv* env,
-        jobject,
-        jint pid,
-        jstring dumpPath) {
-    if (dumpPath == nullptr) return;
-    const char* pathC = env->GetStringUTFChars(dumpPath, nullptr);
-    std::string path(pathC);
-    env->ReleaseStringUTFChars(dumpPath, pathC);
-
-    // Fuzzy logic implies storing a base snapshot. Current implementation just dumps.
-    // In a real implementation, we'd read memory into RAM (fuzzySnapshots) instead of file.
-    dumpMemoryInternal(pid, 0, -1, path);
-
-    std::lock_guard<std::mutex> lock(searchResultsMutex);
-    searchResults.clear();
-}
+// Java_com_techted89_gameex_NativeScanner_startFuzzyScan moved to top with implementation
 
 extern "C"
 JNIEXPORT jlongArray JNICALL

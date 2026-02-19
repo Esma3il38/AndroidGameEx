@@ -5,6 +5,7 @@
 #include <sstream>
 #include <iomanip>
 #include <cstdio>
+#include <cstdint>
 
 // Lua 5.3 Opcode Map
 const char* lua_opnames[] = {
@@ -35,8 +36,16 @@ Java_com_techted89_gameex_NativeScanner_disassembleScript(
         jstring inPath,
         jstring outPath) {
 
+    if (inPath == nullptr || outPath == nullptr) return;
+
     const char* inC = env->GetStringUTFChars(inPath, nullptr);
     const char* outC = env->GetStringUTFChars(outPath, nullptr);
+
+    if (inC == nullptr || outC == nullptr) {
+        if (inC) env->ReleaseStringUTFChars(inPath, inC);
+        if (outC) env->ReleaseStringUTFChars(outPath, outC);
+        return;
+    }
 
     FILE* fIn = fopen(inC, "rb");
     FILE* fOut = nullptr;
@@ -59,7 +68,8 @@ Java_com_techted89_gameex_NativeScanner_disassembleScript(
                         int op = GET_OPCODE(instruction);
                         int a = GETARG_A(instruction);
 
-                        if (op < 47) { // Valid opcode range for our array
+                        // Safe bounds check. Array has 47 names + NULL. Valid ops are 0..46.
+                        if (op >= 0 && op < 47 && lua_opnames[op] != NULL) {
                             fprintf(fOut, "[%04d] %-10s %d", pc, lua_opnames[op], a);
 
                             int b = GETARG_B(instruction);
@@ -93,9 +103,17 @@ Java_com_techted89_gameex_NativeScanner_assembleScript(
         jstring inPath,
         jstring outPath) {
 
+    if (inPath == nullptr || outPath == nullptr) return;
+
     // Stub implementation: "Assemble" by creating a fake .lua binary
     const char* inC = env->GetStringUTFChars(inPath, nullptr);
     const char* outC = env->GetStringUTFChars(outPath, nullptr);
+
+    if (inC == nullptr || outC == nullptr) {
+        if (inC) env->ReleaseStringUTFChars(inPath, inC);
+        if (outC) env->ReleaseStringUTFChars(outPath, outC);
+        return;
+    }
 
     __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Assembling %s to %s", inC, outC);
 

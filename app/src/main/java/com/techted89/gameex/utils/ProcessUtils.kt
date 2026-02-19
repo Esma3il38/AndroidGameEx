@@ -1,25 +1,39 @@
 package com.techted89.gameex.utils
 
-import java.io.File
+import java.io.BufferedReader
+import java.io.DataOutputStream
+import java.io.InputStreamReader
 
 object ProcessUtils {
 
     fun isProcessPaused(pid: Int): Boolean {
+        var process: Process? = null
         return try {
-            val statFile = File("/proc/$pid/stat")
-            if (statFile.exists()) {
-                val content = statFile.readText()
+            process = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat /proc/$pid/stat"))
+
+            val content = process.inputStream.bufferedReader().use { reader ->
+                reader.readLine()
+            }
+
+            process.waitFor()
+
+            if (content != null) {
                 // The state is the 3rd field in /proc/pid/stat
                 // PID (comm) state ...
-                val parts = content.split(" ")
-                if (parts.size > 2) {
-                    val state = parts[2]
-                    return state == "T" // T = Stopped (on a signal) or (before Linux 2.6.33) trace stopped
+                // Note: comm can contain spaces and parentheses.
+                // Robust parsing finds the last ')' and parses from there.
+                val lastParen = content.lastIndexOf(')')
+                if (lastParen != -1 && lastParen + 2 < content.length) {
+                    val stateChar = content[lastParen + 2]
+                    return stateChar == 'T' // T = Stopped (on a signal) or (before Linux 2.6.33) trace stopped
                 }
             }
             false
         } catch (e: Exception) {
+            e.printStackTrace()
             false
+        } finally {
+            process?.destroy()
         }
     }
 
@@ -52,13 +66,19 @@ object ProcessUtils {
      */
     fun injectLibrary(pid: Int, libPath: String): Boolean {
         return try {
-            // Sanitize libPath to prevent command injection
-            val safeLibPath = libPath.replace("'", "'\"'\"'")
+            // Hex-encode the path to bypass shell interpretation entirely
+            // 'xxd -r -p' reverses the hex dump back to binary/text
+            val hexPath = libPath.toByteArray().joinToString("") { "%02x".format(it) }
 
-            // Execute real injection command without guards
-            // Assumes 'injector' binary is available in PATH or /data/local/tmp
-            // This grants full control to the user to attempt injection
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "injector -p $pid -l '$safeLibPath'"))
+            // Construct command: echo <hex> | xxd -r -p | xargs -0 -I {} injector -p <pid> -l {}
+            // Note: xargs -0 might not be available on all Android toybox implementations.
+            // Simpler alternative: store path in a temp var or use command substitution if injector supports it.
+            // Assuming injector takes -l <path>, we can use $(printf ...) to decode safely.
+
+            // Robust command using printf to decode hex strictly
+            val cmd = "injector -p $pid -l \"$(printf '\\x%s' $(echo $hexPath | sed 's/../& /g'))\""
+
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
             val exitCode = process.waitFor()
 
             // Return true if exit code is 0 (success)

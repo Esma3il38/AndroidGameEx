@@ -1,5 +1,7 @@
 package com.techted89.gameex
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -13,6 +15,7 @@ import android.widget.ImageButton
 import android.widget.Toast
 import android.view.inputmethod.EditorInfo
 import androidx.core.app.NotificationCompat
+import kotlin.math.abs
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -23,7 +26,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import java.io.File
 import com.techted89.gameex.utils.ProcessUtils
+import com.techted89.gameex.scripting.GameGuardianAPI
 
 class FloatingOverlayService : Service() {
 
@@ -43,20 +48,36 @@ class FloatingOverlayService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         targetPid = intent?.getIntExtra("PID", -1) ?: -1
+        GameGuardianAPI.setTargetPid(targetPid)
+
+        createNotificationChannel()
 
         // Ensure we run as Foreground to prevent killing
         startForeground(1, NotificationCompat.Builder(this, "overlay_channel")
             .setContentTitle("Memory Editor Active")
             .setContentText("Attached to PID: $targetPid")
             .setSmallIcon(R.mipmap.ic_launcher)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build())
 
         return START_NOT_STICKY
     }
 
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val serviceChannel = NotificationChannel(
+                "overlay_channel",
+                "Overlay Service Channel",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(serviceChannel)
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
-        com.techted89.gameex.scripting.GameGuardianAPI.init(this)
+        GameGuardianAPI.init(this)
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
         // 1. Inflate Views
@@ -69,6 +90,7 @@ class FloatingOverlayService : Service() {
         val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
+            @Suppress("DEPRECATION")
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
@@ -134,7 +156,7 @@ class FloatingOverlayService : Service() {
                         val diffX = (event.rawX - initialTouchX).toInt()
                         val diffY = (event.rawY - initialTouchY).toInt()
 
-                        if (Math.abs(diffX) < 10 && Math.abs(diffY) < 10) {
+                        if (abs(diffX) < 10 && abs(diffY) < 10) {
                             showDashboard()
                         }
                         return true
@@ -275,15 +297,26 @@ class FloatingOverlayService : Service() {
         }
 
         btnPauseGame.setOnClickListener {
-            // Toggle Pause/Resume
-            if (ProcessUtils.isProcessPaused(targetPid)) {
-                ProcessUtils.resumeProcess(targetPid)
-                btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_pause)
-                Toast.makeText(this, "Game Resumed", Toast.LENGTH_SHORT).show()
-            } else {
-                ProcessUtils.pauseProcess(targetPid)
-                btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_play)
-                Toast.makeText(this, "Game Paused", Toast.LENGTH_SHORT).show()
+            btnPauseGame.isEnabled = false
+            serviceScope.launch(Dispatchers.IO) {
+                // Toggle Pause/Resume
+                val isPaused = ProcessUtils.isProcessPaused(targetPid)
+                if (isPaused) {
+                    ProcessUtils.resumeProcess(targetPid)
+                } else {
+                    ProcessUtils.pauseProcess(targetPid)
+                }
+
+                withContext(Dispatchers.Main) {
+                    btnPauseGame.isEnabled = true
+                    if (isPaused) {
+                        btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_pause)
+                        Toast.makeText(this@FloatingOverlayService, "Game Resumed", Toast.LENGTH_SHORT).show()
+                    } else {
+                        btnPauseGame.setBackgroundResource(android.R.drawable.ic_media_play)
+                        Toast.makeText(this@FloatingOverlayService, "Game Paused", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         }
 
@@ -314,8 +347,7 @@ class FloatingOverlayService : Service() {
                 var scanError: String? = null
                 val results = try {
                     if (isNext) {
-                        val intVal = valueStr.toIntOrNull() ?: 0
-                        NativeScanner.filterMemory(targetPid, intVal)
+                        NativeScanner.filterMemoryString(targetPid, valueStr)
                     } else {
                         NativeScanner.searchMemoryString(targetPid, valueStr)
                     }
@@ -374,7 +406,7 @@ class FloatingOverlayService : Service() {
 
         btnExecuteScript.setOnClickListener {
             val script = etScriptInput.text.toString()
-            val output = com.techted89.gameex.scripting.GameGuardianAPI.executeScript(script)
+            val output = GameGuardianAPI.executeScript(script)
             tvScriptOutput.text = "Output:\n$output"
         }
 
@@ -382,16 +414,29 @@ class FloatingOverlayService : Service() {
             val filesDir = getExternalFilesDir(null)?.absolutePath ?: return@setOnClickListener
             val path = "$filesDir/script.lua"
             val outPath = "$filesDir/script.asm"
+
             Toast.makeText(this, "Disassembling...", Toast.LENGTH_SHORT).show()
-            // In real app, write input content to file first
+
             serviceScope.launch(Dispatchers.IO) {
                 try {
+                    // Do not overwrite script.lua with input text, as disassembly requires a binary file.
+                    // We assume script.lua already exists (e.g. from assembly or loaded externally).
+                    if (!File(path).exists()) {
+                        withContext(Dispatchers.Main) {
+                            tvScriptOutput.text = "Error: Input file $path does not exist. Assemble a script first."
+                        }
+                        return@launch
+                    }
+
                     NativeScanner.disassembleScript(path, outPath)
+
+                    val disassembledContent = if (File(outPath).exists()) File(outPath).readText() else "No output"
+
                     withContext(Dispatchers.Main) {
-                        tvScriptOutput.text = "Disassembled to $outPath"
+                        tvScriptOutput.text = "Disassembled to $outPath:\n$disassembledContent"
                     }
                 } catch (e: Exception) {
-                     withContext(Dispatchers.Main) {
+                    withContext(Dispatchers.Main) {
                         tvScriptOutput.text = "Error: ${e.message}"
                     }
                 }
@@ -402,15 +447,25 @@ class FloatingOverlayService : Service() {
             val filesDir = getExternalFilesDir(null)?.absolutePath ?: return@setOnClickListener
             val path = "$filesDir/script.asm"
             val outPath = "$filesDir/script.lua"
+            val scriptContent = etScriptInput.text.toString()
+
             Toast.makeText(this, "Assembling...", Toast.LENGTH_SHORT).show()
+
             serviceScope.launch(Dispatchers.IO) {
                 try {
+                    File(path).writeText(scriptContent)
+                    // Write current script input to the .asm file before assembling
+                    java.io.File(path).writeText(scriptContent)
+
                     NativeScanner.assembleScript(path, outPath)
+
+                    val assembledSize = if (File(outPath).exists()) File(outPath).length() else 0
+
                     withContext(Dispatchers.Main) {
-                        tvScriptOutput.text = "Assembled to $outPath"
+                        tvScriptOutput.text = "Assembled to $outPath (Binary content size: $assembledSize bytes)"
                     }
                 } catch (e: Exception) {
-                     withContext(Dispatchers.Main) {
+                    withContext(Dispatchers.Main) {
                         tvScriptOutput.text = "Error: ${e.message}"
                     }
                 }

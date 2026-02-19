@@ -1,7 +1,6 @@
 package com.techted89.gameex
 import java.io.BufferedReader
 import java.io.DataOutputStream
-import java.io.InputStreamReader
 
 object RootUtils {
     private val WHITESPACE_REGEX = "\\s+".toRegex()
@@ -9,14 +8,20 @@ object RootUtils {
     fun requestRoot(): Boolean {
         var process: Process? = null
         return try {
-            process = Runtime.getRuntime().exec("su")
-            DataOutputStream(process.outputStream).use { os ->
+            // process = Runtime.getRuntime().exec("su")
+            val p = Runtime.getRuntime().exec("su")
+            process = p
+
+            // DataOutputStream(process.outputStream).use { os ->
+            DataOutputStream(p.outputStream).use { os ->
                 os.writeBytes("echo root_access_check\n")
                 os.writeBytes("exit\n")
                 os.flush()
             }
-            process.waitFor()
-            process.exitValue() == 0
+            // process.waitFor()
+            // process.exitValue() == 0
+            p.waitFor()
+            p.exitValue() == 0
         } catch (e: Exception) {
             false
         } finally {
@@ -52,19 +57,24 @@ object RootUtils {
         // Execute ps -A via su to see all processes
         var process: Process? = null
         try {
-            process = Runtime.getRuntime().exec("su")
+            // process = Runtime.getRuntime().exec("su")
+            val p = Runtime.getRuntime().exec("su")
+            process = p
 
-            DataOutputStream(process.outputStream).use { os ->
+            // DataOutputStream(process.outputStream).use { os ->
+            DataOutputStream(p.outputStream).use { os ->
                 os.writeBytes("ps -A\n")
                 os.writeBytes("exit\n")
                 os.flush()
             }
 
-            process.inputStream.bufferedReader().use { reader ->
+            // process.inputStream.bufferedReader().use { reader ->
+            p.inputStream.bufferedReader().use { reader ->
                 processes.addAll(parsePsOutput(reader))
             }
 
-            process.waitFor()
+            // process.waitFor()
+            p.waitFor()
         } catch (e: Exception) {
             e.printStackTrace()
             // Fallback to non-root ps if su fails?

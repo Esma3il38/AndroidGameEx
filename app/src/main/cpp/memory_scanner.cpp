@@ -17,6 +17,7 @@
 #include <sys/ptrace.h>
 #include <sys/wait.h>
 #include <errno.h>
+#include <unistd.h>
 
 // Define the structure of a memory region
 struct MemoryRegion {
@@ -94,42 +95,91 @@ SearchCondition parseSearchQuery(const std::string& query) {
     return cond;
 }
 
+std::string readProcMaps(int pid) {
+    if (pid <= 0) return "";
+
+    int pipefd[2];
+    if (pipe(pipefd) == -1) {
+        return "";
+    }
+
+    pid_t child = fork();
+    if (child == -1) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return "";
+    }
+
+    if (child == 0) {
+        // Child
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[1]);
+
+        std::string path = "/proc/" + std::to_string(pid) + "/maps";
+        std::string cmd = "cat " + path;
+
+        // Execute su -c "cat /proc/pid/maps"
+        // Using execlp ensures no shell expansion vulnerability beyond what su itself does
+        execlp("su", "su", "-c", cmd.c_str(), (char *)NULL);
+        _exit(127);
+    }
+
+    // Parent
+    close(pipefd[1]);
+
+    std::string output;
+    char buffer[4096];
+    ssize_t count;
+    while ((count = read(pipefd[0], buffer, sizeof(buffer))) > 0) {
+        output.append(buffer, count);
+    }
+    close(pipefd[0]);
+    waitpid(child, nullptr, 0);
+
+    return output;
+}
+
 /**
  * @brief Collects readable and writable memory regions for a given process.
  */
 std::vector<MemoryRegion> getMemoryRegions(int pid) {
     std::vector<MemoryRegion> regions;
-    std::string mapsPath = "/proc/" + std::to_string(pid) + "/maps";
-    std::ifstream mapsFile(mapsPath);
-
-    if (!mapsFile.is_open()) {
-        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Failed to open maps: %s", mapsPath.c_str());
+    std::string mapsData = readProcMaps(pid);
+    if (mapsData.empty()) {
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Failed to read maps for PID: %d", pid);
         return regions;
     }
 
+    std::stringstream ss(mapsData);
     std::string line;
-    while (std::getline(mapsFile, line)) {
+    while (std::getline(ss, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back(); // Handle CRLF if any
+
         MemoryRegion region;
         char permissions[5];
-        char dev[10];
+        char dev[16];
         long inode;
-        char path[256] = {0};
+        char path[1024] = {0};
         int pos = 0;
 
-        int parsed = sscanf(line.c_str(), "%" SCNxPTR "-%" SCNxPTR " %4s %*s %9s %ld%n",
+        // sscanf is dangerous for strings, we parse fixed fields first
+        int parsed = sscanf(line.c_str(), "%" SCNxPTR "-%" SCNxPTR " %4s %*s %15s %ld%n",
                &region.startAddress, &region.endAddress, permissions, dev, &inode, &pos);
 
         if (parsed < 5) continue;
 
+        // Manually extract path to avoid buffer overflow with %s
         if (pos > 0 && (size_t)pos < line.length()) {
             const char* p = line.c_str() + pos;
             while (*p == ' ' || *p == '\t') p++;
-            strncpy(path, p, sizeof(path) - 1);
-            path[sizeof(path) - 1] = '\0';
-            size_t len = strlen(path);
-            if (len > 0 && path[len-1] == '\n') path[len-1] = '\0';
-        } else {
-            path[0] = '\0';
+
+            // Safe copy
+            size_t i = 0;
+            while (*p && i < sizeof(path) - 1) {
+                path[i++] = *p++;
+            }
+            path[i] = '\0';
         }
 
         region.isReadable = (permissions[0] == 'r');
@@ -832,12 +882,14 @@ Java_com_techted89_gameex_NativeScanner_getLoadedModules(
         jint pid) {
 
     std::set<std::string> modules;
-    std::string mapsPath = "/proc/" + std::to_string(pid) + "/maps";
-    std::ifstream mapsFile(mapsPath);
+    std::string mapsData = readProcMaps(pid);
 
-    if (mapsFile.is_open()) {
+    if (!mapsData.empty()) {
+        std::stringstream ss(mapsData);
         std::string line;
-        while (std::getline(mapsFile, line)) {
+        while (std::getline(ss, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+
             if (line.find(".so") != std::string::npos) {
                 size_t lastSpace = line.find_last_of(" \t");
                 if (lastSpace != std::string::npos && lastSpace + 1 < line.length()) {

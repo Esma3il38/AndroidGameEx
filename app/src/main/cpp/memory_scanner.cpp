@@ -138,6 +138,7 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
     return regions;
 }
 
+// Forward declaration to resolve dependency in searchMemory
 // Helper to safely write memory using ptrace (handles alignment and read-modify-write)
 bool ptraceWrite(int pid, uintptr_t addr, const void* data, size_t size) {
     const uint8_t* src = (const uint8_t*)data;

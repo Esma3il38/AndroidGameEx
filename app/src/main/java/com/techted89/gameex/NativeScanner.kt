@@ -44,6 +44,15 @@ external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
     external fun filterMemory(pid: Int, value: Int): Int
 
     /**
+     * Filters the current search results using a query string.
+     *
+     * @param pid The target process ID.
+     * @param query The query string (e.g., "100~200").
+     * @return The number of remaining matches.
+     */
+    external fun filterMemoryString(pid: Int, query: String): Int
+
+    /**
      * Retrieves a list of loaded modules (libraries) in the target process.
      *
      * @param pid The target process ID.
@@ -77,11 +86,20 @@ external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
 
     /**
      * Installs a hook at the target address.
+     *
+     * @param pid Target process ID.
+     * @param targetAddress Address to hook.
+     * @param replacementAddress Address to jump to.
+     * @return True if successful.
      */
     external fun installHook(pid: Int, targetAddress: Long, replacementAddress: Long): Boolean
 
     /**
      * Removes a previously installed hook.
+     *
+     * @param pid Target process ID.
+     * @param targetAddress Address of the hook.
+     * @return True if successful.
      */
     external fun removeHook(pid: Int, targetAddress: Long): Boolean
 

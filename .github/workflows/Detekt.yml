@@ -1,118 +1,16 @@
-processors:
-  active: false
+name: detekt
 
-console-reports:
-  active: false
+on:
+  push:
+    branches: [ master ]
 
-comments:
-  active: true
+ jobs:
+   detekt:
+     runs-on: ubuntu-latest
 
-complexity:
-  active: true
-  CognitiveComplexMethod:
-    active: true
-    threshold: 0
+     steps:
+       - name: "checkout"
+         uses: actions/checkout@v2
 
-empty-blocks:
-  active: true
-  EmptyCatchBlock:
-    active: true
-  EmptyClassBlock:
-    active: false
-  EmptyDefaultConstructor:
-    active: false
-  EmptyDoWhileBlock:
-    active: true
-  EmptyElseBlock:
-    active: true
-  EmptyFinallyBlock:
-    active: true
-  EmptyForBlock:
-    active: true
-  EmptyFunctionBlock:
-    active: true
-    ignoreOverridden: true
-  EmptyIfBlock:
-    active: false
-  EmptyInitBlock:
-    active: true
-  EmptyKtFile:
-    active: true
-  EmptySecondaryConstructor:
-    active: true
-  EmptyWhenBlock:
-    active: true
-  EmptyWhileBlock:
-    active: true
-
-exceptions:
-  active: true
-  ReturnFromFinally:
-    active: true
-
-formatting:
-  active: true
-  NoEmptyClassBody:
-    active: true
-    autoCorrect: true
-
-naming:
-  active: false
-
-performance:
-  active: true
-  ArrayPrimitive:
-    active: true
-  ForEachOnRange:
-    active: true
-    excludes: "**/test/**,**/androidTest/**,**/*.Test.kt,**/*.Spec.kt,**/*.Spek.kt"
-  SpreadOperator:
-    active: false
-    excludes: "**/test/**,**/androidTest/**,**/*.Test.kt,**/*.Spec.kt,**/*.Spek.kt"
-  UnnecessaryTemporaryInstantiation:
-    active: true
-
-potential-bugs:
-  active: true
-  EqualsAlwaysReturnsTrueOrFalse:
-    active: true
-  EqualsWithHashCodeExist:
-    active: true
-  ExplicitGarbageCollectionCall:
-    active: true
-  InvalidRange:
-    active: true
-  IteratorHasNextCallsNextMethod:
-    active: true
-  IteratorNotThrowingNoSuchElementException:
-    active: false
-  UnconditionalJumpStatementInLoop:
-    active: true
-  UnreachableCode:
-    active: true
-  UselessPostfixExpression:
-    active: true
-  WrongEqualsTypeParameter:
-    active: true
-
-style:
-  active: true
-  ForbiddenComment:
-    active: false
-  TrailingWhitespace:
-    active: false
-  UnnecessaryApply:
-    active: false
-  UnnecessaryInheritance:
-    active: true
-  UnnecessaryLet:
-    active: true
-  UnnecessaryParentheses:
-    active: true
-    allowForUnclearPrecedence : true
-  UnusedPrivateClass:
-    active: true
-
-coroutines:
-  RedundantSuspendModifier:
-    active: true
+       - name: "detekt"
+         uses: natiginfo/action-detekt-all@2.0.0-alpha.1

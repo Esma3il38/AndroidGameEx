@@ -10,10 +10,11 @@ object RootUtils {
         var process: Process? = null
         return try {
             process = Runtime.getRuntime().exec("su")
-            val os = DataOutputStream(process.outputStream)
-            os.writeBytes("echo root_access_check\n")
-            os.writeBytes("exit\n")
-            os.flush()
+            DataOutputStream(process.outputStream).use { os ->
+                os.writeBytes("echo root_access_check\n")
+                os.writeBytes("exit\n")
+                os.flush()
+            }
             process.waitFor()
             process.exitValue() == 0
         } catch (e: Exception) {
@@ -52,14 +53,16 @@ object RootUtils {
         var process: Process? = null
         try {
             process = Runtime.getRuntime().exec("su")
-            val os = DataOutputStream(process.outputStream)
-            val reader = BufferedReader(InputStreamReader(process.inputStream))
 
-            os.writeBytes("ps -A\n")
-            os.writeBytes("exit\n")
-            os.flush()
+            DataOutputStream(process.outputStream).use { os ->
+                os.writeBytes("ps -A\n")
+                os.writeBytes("exit\n")
+                os.flush()
+            }
 
-            processes.addAll(parsePsOutput(reader))
+            process.inputStream.bufferedReader().use { reader ->
+                processes.addAll(parsePsOutput(reader))
+            }
 
             process.waitFor()
         } catch (e: Exception) {

@@ -270,8 +270,8 @@ class FloatingOverlayService : Service() {
                             // Reusing MemoryResultAdapter for simplicity since it just shows two texts
                             // In real app, create ModuleAdapter
                             val moduleResults = modules.map { MemoryResult(0, it) }
-                            val adapter = MemoryResultAdapter(moduleResults)
-                            rvModulesList.adapter = adapter
+                            val modulesAdapter = MemoryResultAdapter(moduleResults)
+                            rvModulesList.adapter = modulesAdapter
                         }
                     }
                 }
@@ -356,7 +356,11 @@ class FloatingOverlayService : Service() {
 
                     addresses.map { addr ->
                         val bytes = NativeScanner.readMemory(targetPid, addr, 4)
-                        val hexVal = bytes.joinToString("") { "%02X".format(it) }
+                        val hexVal = if (bytes.isNotEmpty()) {
+                            bytes.joinToString("") { "%02X".format(it) }
+                        } else {
+                            "???"
+                        }
                         MemoryResult(addr, "$hexVal ($valueStr)")
                     }
                 } catch (e: Exception) {
@@ -508,10 +512,17 @@ class FloatingOverlayService : Service() {
     private fun showStealthDialog() {
         val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_stealth_settings, null)
 
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
+            type,
             WindowManager.LayoutParams.FLAG_DIM_BEHIND,
             PixelFormat.TRANSLUCENT
         )

@@ -37,6 +37,16 @@ std::mutex searchResultsMutex;
 std::map<jlong, std::vector<uint8_t>> originalBytesMap;
 std::mutex originalBytesMutex;
 
+// Optimized storage for Fuzzy Scan baseline (Memory Region Snapshots)
+// This avoids the massive overhead of storing (address, value) pairs.
+struct SnapshotRegion {
+    uintptr_t startAddress;
+    std::vector<uint8_t> data;
+};
+
+std::vector<SnapshotRegion> fuzzySnapshots;
+std::mutex fuzzyMutex;
+
 enum SearchType {
     EXACT,
     RANGE,
@@ -188,6 +198,7 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
     return regions;
 }
 
+// Forward declaration to resolve dependency in searchMemory
 // Helper to safely write memory using ptrace (handles alignment and read-modify-write)
 bool ptraceWrite(int pid, uintptr_t addr, const void* data, size_t size) {
     const uint8_t* src = (const uint8_t*)data;
@@ -372,6 +383,7 @@ Java_com_techted89_gameex_NativeScanner_installHook(
         jlong targetAddress,
         jlong replacementAddress) {
 
+#if defined(__aarch64__)
     if (targetAddress == 0 || replacementAddress == 0) return JNI_FALSE;
 
     // ARM64 Absolute Jump Trampoline (16 bytes)
@@ -414,6 +426,10 @@ Java_com_techted89_gameex_NativeScanner_installHook(
     ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
 
     return success ? JNI_TRUE : JNI_FALSE;
+#else
+    __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Hook installation only supported on ARM64");
+    return JNI_FALSE;
+#endif
 }
 
 extern "C" /**
@@ -529,19 +545,197 @@ Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
         jint pid,
         jstring dumpPath) {
 
-    if (dumpPath == nullptr) return;
+    // Process dumpPath if provided
+    bool hasDump = (dumpPath != nullptr);
+    std::string path;
+    if (hasDump) {
+        const char* pathC = env->GetStringUTFChars(dumpPath, nullptr);
+        if (pathC) {
+            path = pathC;
+            env->ReleaseStringUTFChars(dumpPath, pathC);
+        } else {
+            hasDump = false;
+        }
+    }
 
-    const char* pathC = env->GetStringUTFChars(dumpPath, nullptr);
-    if (pathC == nullptr) return;
-    std::string path(pathC);
-    env->ReleaseStringUTFChars(dumpPath, pathC);
+    // Populate local snapshot first (avoid holding global lock during I/O)
+    std::vector<SnapshotRegion> newSnapshots;
+    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
+    const size_t CHUNK_SIZE = 64 * 1024; // Read 64KB chunks to minimize syscalls
+    std::vector<uint8_t> buffer(CHUNK_SIZE);
 
-    std::lock_guard<std::mutex> lock(searchResultsMutex);
-    searchResults.clear();
+    for (const auto& region : regions) {
+        uintptr_t currentAddr = region.startAddress;
+        while (currentAddr < region.endAddress) {
+            uintptr_t remaining = region.endAddress - currentAddr;
+            size_t readSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : (size_t)remaining;
 
-    // Perform dump for fuzzy scan baseline
-    dumpMemoryInternal(pid, 0, -1, path);
-    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Baseline Dumped to: %s", path.c_str());
+            struct iovec local_iov = {buffer.data(), readSize};
+            struct iovec remote_iov = {(void*)currentAddr, readSize};
+
+            ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+
+            if (bytesRead > 0) {
+                SnapshotRegion snapshot;
+                snapshot.startAddress = currentAddr;
+                snapshot.data.assign(buffer.begin(), buffer.begin() + bytesRead);
+                newSnapshots.push_back(std::move(snapshot));
+            }
+            currentAddr += readSize;
+        }
+    }
+
+    // Sort newSnapshots by startAddress to guarantee binary search works later
+    std::sort(newSnapshots.begin(), newSnapshots.end(),
+              [](const SnapshotRegion& a, const SnapshotRegion& b) {
+                  return a.startAddress < b.startAddress;
+              });
+
+    // Update global state under lock
+    {
+        std::lock(searchResultsMutex, fuzzyMutex);
+        std::lock_guard<std::mutex> lk1(searchResultsMutex, std::adopt_lock);
+        std::lock_guard<std::mutex> lk2(fuzzyMutex, std::adopt_lock);
+
+        searchResults.clear();
+        fuzzySnapshots = std::move(newSnapshots);
+
+        __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Baseline: %zu regions captured", fuzzySnapshots.size());
+    }
+
+    // Perform dump for fuzzy scan baseline (Legacy/Debug support) if requested
+    if (hasDump) {
+        dumpMemoryInternal(pid, 0, -1, path);
+        __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Baseline Dumped to: %s", path.c_str());
+    }
+}
+
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_filterFuzzy(
+        JNIEnv* env,
+        jobject /* this */,
+        jint pid,
+        jint mode) {
+
+    // Mode: 0=CHANGED, 1=UNCHANGED, 2=INCREASED, 3=DECREASED
+    if (mode < 0 || mode > 3) {
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Invalid filter mode: %d", mode);
+        return 0;
+    }
+
+    std::lock(searchResultsMutex, fuzzyMutex);
+    std::lock_guard<std::mutex> lk1(searchResultsMutex, std::adopt_lock);
+    std::lock_guard<std::mutex> lk2(fuzzyMutex, std::adopt_lock);
+
+    if (fuzzySnapshots.empty()) {
+        return 0;
+    }
+
+    // Two modes of operation:
+    // 1. Initial Filter (searchResults is empty): Scan all fuzzySnapshots.
+    // 2. Subsequent Filter (searchResults has data): Scan only searchResults.
+
+    bool isInitialFilter = searchResults.empty();
+    const size_t MAX_RESULTS = 100000;
+
+    if (isInitialFilter) {
+        // Path A: Initial Filter - Iterate all snapshots
+        const size_t CHUNK_SIZE = 64 * 1024;
+        std::vector<uint8_t> currentBuffer(CHUNK_SIZE);
+
+        for (auto& snapshot : fuzzySnapshots) {
+            // Check cap
+            if (searchResults.size() >= MAX_RESULTS) break;
+
+            size_t size = snapshot.data.size();
+            if (size > CHUNK_SIZE) currentBuffer.resize(size);
+
+            struct iovec local_iov = {currentBuffer.data(), size};
+            struct iovec remote_iov = {(void*)snapshot.startAddress, size};
+
+            ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+
+            if (bytesRead == (ssize_t)size) {
+                // Compare int-by-int (4 bytes alignment)
+                for (size_t i = 0; i + 4 <= size; i += 4) {
+                    if (searchResults.size() >= MAX_RESULTS) break;
+
+                    int oldVal, currentVal;
+                    std::memcpy(&oldVal, &snapshot.data[i], sizeof(int));
+                    std::memcpy(&currentVal, &currentBuffer[i], sizeof(int));
+
+                    bool match = false;
+                    switch (mode) {
+                        case 0: match = (currentVal != oldVal); break; // CHANGED
+                        case 1: match = (currentVal == oldVal); break; // UNCHANGED
+                        case 2: match = (currentVal > oldVal); break;  // INCREASED
+                        case 3: match = (currentVal < oldVal); break;  // DECREASED
+                    }
+
+                    if (match) {
+                        searchResults.push_back((jlong)(snapshot.startAddress + i));
+                        // Update snapshot with current value for next comparison
+                        std::memcpy(&snapshot.data[i], &currentVal, sizeof(int));
+                    }
+                }
+            }
+        }
+    } else {
+        // Path B: Subsequent Filter - Iterate searchResults
+        // This is slower per-address but faster overall if list is small.
+        // Optimization: Sort searchResults to batch reads? Assuming sorted.
+
+        auto it = std::remove_if(searchResults.begin(), searchResults.end(), [&](jlong addr) {
+            // Find the snapshot containing this address
+            // Use binary search for speed since fuzzySnapshots are sorted by address
+            auto regionIt = std::lower_bound(fuzzySnapshots.begin(), fuzzySnapshots.end(), addr,
+                [](const SnapshotRegion& region, jlong val) {
+                    return region.startAddress + region.data.size() <= (uintptr_t)val;
+                });
+
+            if (regionIt == fuzzySnapshots.end() || addr < (jlong)regionIt->startAddress) {
+                return true; // Address not found in snapshots
+            }
+
+            size_t offset = (size_t)(addr - regionIt->startAddress);
+            if (offset + 4 > regionIt->data.size()) return true;
+
+            int oldVal;
+            std::memcpy(&oldVal, &regionIt->data[offset], sizeof(int));
+
+            int currentVal = 0;
+            struct iovec local_iov = {&currentVal, sizeof(int)};
+            struct iovec remote_iov = {(void*)(uintptr_t)addr, sizeof(int)};
+
+            ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+
+            if (bytesRead != sizeof(int)) return true;
+
+            bool match = false;
+            switch (mode) {
+                case 0: match = (currentVal != oldVal); break; // CHANGED
+                case 1: match = (currentVal == oldVal); break; // UNCHANGED
+                case 2: match = (currentVal > oldVal); break;  // INCREASED
+                case 3: match = (currentVal < oldVal); break;  // DECREASED
+            }
+
+            if (match) {
+                // Update snapshot
+                std::memcpy(&regionIt->data[offset], &currentVal, sizeof(int));
+                return false; // Keep
+            }
+            return true; // Remove
+        });
+
+        searchResults.erase(it, searchResults.end());
+    }
+
+    size_t resultCount = searchResults.size();
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Filter Complete. Remaining: %zu", resultCount);
+
+    // Clamp return value to avoid overflow
+    return (jint)std::min(resultCount, (size_t)INT_MAX);
 }
 
 extern "C"

@@ -12,6 +12,7 @@ import android.view.*
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.TextView
 import android.widget.Toast
 import android.view.inputmethod.EditorInfo
 import androidx.core.app.NotificationCompat
@@ -42,12 +43,14 @@ class FloatingOverlayService : Service() {
     private lateinit var dashboardParams: WindowManager.LayoutParams
 
     private var targetPid: Int = -1
+    private var targetAppName: String = "Unknown"
     private var isDashboardVisible = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         targetPid = intent?.getIntExtra("PID", -1) ?: -1
+        targetAppName = intent?.getStringExtra("APP_NAME") ?: "Unknown"
         GameGuardianAPI.setTargetPid(targetPid)
 
         createNotificationChannel()
@@ -55,7 +58,7 @@ class FloatingOverlayService : Service() {
         // Ensure we run as Foreground to prevent killing
         startForeground(1, NotificationCompat.Builder(this, "overlay_channel")
             .setContentTitle("Memory Editor Active")
-            .setContentText("Attached to PID: $targetPid")
+            .setContentText("Attached to $targetAppName (PID: $targetPid)")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build())
@@ -168,6 +171,9 @@ class FloatingOverlayService : Service() {
     }
 
     private fun setupDashboardLogic() {
+        // Initial setup for target info if PID is available
+        updateTargetInfo()
+
         val btnMinimize = dashboardView.findViewById<ImageButton>(R.id.btn_minimize)
         val btnPauseGame = dashboardView.findViewById<ImageButton>(R.id.btn_pause_game)
         val btnStealth = dashboardView.findViewById<ImageButton>(R.id.btn_stealth)
@@ -497,8 +503,21 @@ class FloatingOverlayService : Service() {
         }
     }
 
+    private fun updateTargetInfo() {
+        if (!::dashboardView.isInitialized) return
+        val tvInfo = dashboardView.findViewById<TextView>(R.id.tv_target_info)
+        if (targetPid != -1) {
+            tvInfo.text = "Target: $targetAppName (PID: $targetPid)"
+        } else {
+            tvInfo.text = "Target: None"
+        }
+    }
+
     private fun showDashboard() {
         if (isDashboardVisible) return
+
+        // Update info just in case it changed (re-attached)
+        updateTargetInfo()
 
         // Remove Icon, Add Dashboard
         windowManager.removeView(iconView)

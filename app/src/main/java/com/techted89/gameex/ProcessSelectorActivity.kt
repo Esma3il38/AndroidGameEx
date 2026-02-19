@@ -121,6 +121,8 @@ class ProcessSelectorActivity : AppCompatActivity() {
         intent.putExtra("PID", process.pid)
         // Pass package name/process name as PNAME
         intent.putExtra("PNAME", process.processName)
+        // Pass app name as APP_NAME
+        intent.putExtra("APP_NAME", process.appName)
         startService(intent)
         // Optionally finish() or minimize app
         moveTaskToBack(true)

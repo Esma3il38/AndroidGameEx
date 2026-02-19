@@ -36,8 +36,14 @@ std::mutex searchResultsMutex;
 std::map<jlong, std::vector<uint8_t>> originalBytesMap;
 std::mutex originalBytesMutex;
 
-// Global buffer for Fuzzy Scan baseline (Address, Value)
-std::vector<std::pair<jlong, int>> fuzzyBaseline;
+// Optimized storage for Fuzzy Scan baseline (Memory Region Snapshots)
+// This avoids the massive overhead of storing (address, value) pairs.
+struct SnapshotRegion {
+    uintptr_t startAddress;
+    std::vector<uint8_t> data;
+};
+
+std::vector<SnapshotRegion> fuzzySnapshots;
 std::mutex fuzzyMutex;
 
 enum SearchType {
@@ -496,13 +502,13 @@ Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
         searchResults.clear();
     }
 
-    // Populate fuzzy baseline
+    // Populate fuzzy snapshots (Optimized Block Storage)
     {
         std::lock_guard<std::mutex> lock(fuzzyMutex);
-        fuzzyBaseline.clear();
+        fuzzySnapshots.clear();
 
         std::vector<MemoryRegion> regions = getMemoryRegions(pid);
-        const size_t CHUNK_SIZE = 4096;
+        const size_t CHUNK_SIZE = 64 * 1024; // Read 64KB chunks to minimize syscalls
         std::vector<uint8_t> buffer(CHUNK_SIZE);
 
         for (const auto& region : regions) {
@@ -516,22 +522,19 @@ Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
 
                 ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
 
-                if (bytesRead >= 4) {
-                    size_t limit = (size_t)bytesRead;
-                    for (size_t i = 0; i + 4 <= limit; i += 4) {
-                        int val;
-                        std::memcpy(&val, &buffer[i], sizeof(int));
-                        // Store everything for fuzzy scan baseline
-                        fuzzyBaseline.push_back({(jlong)(currentAddr + i), val});
-                    }
+                if (bytesRead > 0) {
+                    SnapshotRegion snapshot;
+                    snapshot.startAddress = currentAddr;
+                    snapshot.data.assign(buffer.begin(), buffer.begin() + bytesRead);
+                    fuzzySnapshots.push_back(std::move(snapshot));
                 }
                 currentAddr += readSize;
             }
         }
-        __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Baseline: %zu entries", fuzzyBaseline.size());
+        __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Baseline: %zu regions captured", fuzzySnapshots.size());
     }
 
-    // Perform dump for fuzzy scan baseline
+    // Perform dump for fuzzy scan baseline (Legacy/Debug support)
     dumpMemoryInternal(pid, 0, -1, path);
     __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Baseline Dumped to: %s", path.c_str());
 }
@@ -549,55 +552,101 @@ Java_com_techted89_gameex_NativeScanner_filterFuzzy(
     std::lock_guard<std::mutex> lockResult(searchResultsMutex);
     std::lock_guard<std::mutex> lockFuzzy(fuzzyMutex);
 
-    if (fuzzyBaseline.empty()) {
+    if (fuzzySnapshots.empty()) {
         return 0;
     }
 
-    auto it = std::remove_if(fuzzyBaseline.begin(), fuzzyBaseline.end(), [&](std::pair<jlong, int>& entry) {
-        jlong addr = entry.first;
-        int oldVal = entry.second;
+    // Two modes of operation:
+    // 1. Initial Filter (searchResults is empty): Scan all fuzzySnapshots.
+    // 2. Subsequent Filter (searchResults has data): Scan only searchResults.
 
-        int currentVal = 0;
-        struct iovec local_iov = {&currentVal, sizeof(int)};
-        struct iovec remote_iov = {(void*)(uintptr_t)addr, sizeof(int)};
+    bool isInitialFilter = searchResults.empty();
 
-        ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+    if (isInitialFilter) {
+        // Path A: Initial Filter - Iterate all snapshots
+        const size_t CHUNK_SIZE = 64 * 1024;
+        std::vector<uint8_t> currentBuffer(CHUNK_SIZE);
 
-        if (bytesRead != sizeof(int)) {
-            return true; // Remove unreadable
+        for (auto& snapshot : fuzzySnapshots) {
+            size_t size = snapshot.data.size();
+            if (size > CHUNK_SIZE) currentBuffer.resize(size);
+
+            struct iovec local_iov = {currentBuffer.data(), size};
+            struct iovec remote_iov = {(void*)snapshot.startAddress, size};
+
+            ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+
+            if (bytesRead == (ssize_t)size) {
+                // Compare int-by-int (4 bytes alignment)
+                for (size_t i = 0; i + 4 <= size; i += 4) {
+                    int oldVal, currentVal;
+                    std::memcpy(&oldVal, &snapshot.data[i], sizeof(int));
+                    std::memcpy(&currentVal, &currentBuffer[i], sizeof(int));
+
+                    bool match = false;
+                    switch (mode) {
+                        case 0: match = (currentVal != oldVal); break; // CHANGED
+                        case 1: match = (currentVal == oldVal); break; // UNCHANGED
+                        case 2: match = (currentVal > oldVal); break;  // INCREASED
+                        case 3: match = (currentVal < oldVal); break;  // DECREASED
+                    }
+
+                    if (match) {
+                        searchResults.push_back((jlong)(snapshot.startAddress + i));
+                        // Update snapshot with current value for next comparison
+                        std::memcpy(&snapshot.data[i], &currentVal, sizeof(int));
+                    }
+                }
+            }
         }
+    } else {
+        // Path B: Subsequent Filter - Iterate searchResults
+        // This is slower per-address but faster overall if list is small.
+        // Optimization: Sort searchResults to batch reads? Assuming sorted.
 
-        bool match = false;
-        switch (mode) {
-            case 0: // CHANGED
-                match = (currentVal != oldVal);
-                break;
-            case 1: // UNCHANGED
-                match = (currentVal == oldVal);
-                break;
-            case 2: // INCREASED
-                match = (currentVal > oldVal);
-                break;
-            case 3: // DECREASED
-                match = (currentVal < oldVal);
-                break;
-            default:
-                break;
-        }
+        auto it = std::remove_if(searchResults.begin(), searchResults.end(), [&](jlong addr) {
+            // Find the snapshot containing this address
+            // Use binary search for speed since fuzzySnapshots are sorted by address
+            auto regionIt = std::lower_bound(fuzzySnapshots.begin(), fuzzySnapshots.end(), addr,
+                [](const SnapshotRegion& region, jlong val) {
+                    return region.startAddress + region.data.size() <= (uintptr_t)val;
+                });
 
-        if (match) {
-            entry.second = currentVal; // Update value for next comparison
-            return false; // Keep
-        }
-        return true; // Remove
-    });
+            if (regionIt == fuzzySnapshots.end() || addr < (jlong)regionIt->startAddress) {
+                return true; // Address not found in snapshots
+            }
 
-    fuzzyBaseline.erase(it, fuzzyBaseline.end());
+            size_t offset = (size_t)(addr - regionIt->startAddress);
+            if (offset + 4 > regionIt->data.size()) return true;
 
-    // Populate searchResults from remaining fuzzyBaseline
-    searchResults.clear();
-    for (const auto& entry : fuzzyBaseline) {
-        searchResults.push_back(entry.first);
+            int oldVal;
+            std::memcpy(&oldVal, &regionIt->data[offset], sizeof(int));
+
+            int currentVal = 0;
+            struct iovec local_iov = {&currentVal, sizeof(int)};
+            struct iovec remote_iov = {(void*)(uintptr_t)addr, sizeof(int)};
+
+            ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+
+            if (bytesRead != sizeof(int)) return true;
+
+            bool match = false;
+            switch (mode) {
+                case 0: match = (currentVal != oldVal); break; // CHANGED
+                case 1: match = (currentVal == oldVal); break; // UNCHANGED
+                case 2: match = (currentVal > oldVal); break;  // INCREASED
+                case 3: match = (currentVal < oldVal); break;  // DECREASED
+            }
+
+            if (match) {
+                // Update snapshot
+                std::memcpy(&regionIt->data[offset], &currentVal, sizeof(int));
+                return false; // Keep
+            }
+            return true; // Remove
+        });
+
+        searchResults.erase(it, searchResults.end());
     }
 
     __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Filter Complete. Remaining: %zu", searchResults.size());

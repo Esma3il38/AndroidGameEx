@@ -489,54 +489,69 @@ Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
         jint pid,
         jstring dumpPath) {
 
-    if (dumpPath == nullptr) return;
-
-    const char* pathC = env->GetStringUTFChars(dumpPath, nullptr);
-    if (pathC == nullptr) return;
-    std::string path(pathC);
-    env->ReleaseStringUTFChars(dumpPath, pathC);
-
-    // Clear previous results
-    {
-        std::lock_guard<std::mutex> lock(searchResultsMutex);
-        searchResults.clear();
+    // Process dumpPath if provided
+    bool hasDump = (dumpPath != nullptr);
+    std::string path;
+    if (hasDump) {
+        const char* pathC = env->GetStringUTFChars(dumpPath, nullptr);
+        if (pathC) {
+            path = pathC;
+            env->ReleaseStringUTFChars(dumpPath, pathC);
+        } else {
+            hasDump = false;
+        }
     }
 
-    // Populate fuzzy snapshots (Optimized Block Storage)
-    {
-        std::lock_guard<std::mutex> lock(fuzzyMutex);
-        fuzzySnapshots.clear();
+    // Populate local snapshot first (avoid holding global lock during I/O)
+    std::vector<SnapshotRegion> newSnapshots;
+    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
+    const size_t CHUNK_SIZE = 64 * 1024; // Read 64KB chunks to minimize syscalls
+    std::vector<uint8_t> buffer(CHUNK_SIZE);
 
-        std::vector<MemoryRegion> regions = getMemoryRegions(pid);
-        const size_t CHUNK_SIZE = 64 * 1024; // Read 64KB chunks to minimize syscalls
-        std::vector<uint8_t> buffer(CHUNK_SIZE);
+    for (const auto& region : regions) {
+        uintptr_t currentAddr = region.startAddress;
+        while (currentAddr < region.endAddress) {
+            uintptr_t remaining = region.endAddress - currentAddr;
+            size_t readSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : (size_t)remaining;
 
-        for (const auto& region : regions) {
-            uintptr_t currentAddr = region.startAddress;
-            while (currentAddr < region.endAddress) {
-                uintptr_t remaining = region.endAddress - currentAddr;
-                size_t readSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : (size_t)remaining;
+            struct iovec local_iov = {buffer.data(), readSize};
+            struct iovec remote_iov = {(void*)currentAddr, readSize};
 
-                struct iovec local_iov = {buffer.data(), readSize};
-                struct iovec remote_iov = {(void*)currentAddr, readSize};
+            ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
 
-                ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
-
-                if (bytesRead > 0) {
-                    SnapshotRegion snapshot;
-                    snapshot.startAddress = currentAddr;
-                    snapshot.data.assign(buffer.begin(), buffer.begin() + bytesRead);
-                    fuzzySnapshots.push_back(std::move(snapshot));
-                }
-                currentAddr += readSize;
+            if (bytesRead > 0) {
+                SnapshotRegion snapshot;
+                snapshot.startAddress = currentAddr;
+                snapshot.data.assign(buffer.begin(), buffer.begin() + bytesRead);
+                newSnapshots.push_back(std::move(snapshot));
             }
+            currentAddr += readSize;
         }
+    }
+
+    // Sort newSnapshots by startAddress to guarantee binary search works later
+    std::sort(newSnapshots.begin(), newSnapshots.end(),
+              [](const SnapshotRegion& a, const SnapshotRegion& b) {
+                  return a.startAddress < b.startAddress;
+              });
+
+    // Update global state under lock
+    {
+        std::lock(searchResultsMutex, fuzzyMutex);
+        std::lock_guard<std::mutex> lk1(searchResultsMutex, std::adopt_lock);
+        std::lock_guard<std::mutex> lk2(fuzzyMutex, std::adopt_lock);
+
+        searchResults.clear();
+        fuzzySnapshots = std::move(newSnapshots);
+
         __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Baseline: %zu regions captured", fuzzySnapshots.size());
     }
 
-    // Perform dump for fuzzy scan baseline (Legacy/Debug support)
-    dumpMemoryInternal(pid, 0, -1, path);
-    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Baseline Dumped to: %s", path.c_str());
+    // Perform dump for fuzzy scan baseline (Legacy/Debug support) if requested
+    if (hasDump) {
+        dumpMemoryInternal(pid, 0, -1, path);
+        __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Baseline Dumped to: %s", path.c_str());
+    }
 }
 
 extern "C"
@@ -548,9 +563,14 @@ Java_com_techted89_gameex_NativeScanner_filterFuzzy(
         jint mode) {
 
     // Mode: 0=CHANGED, 1=UNCHANGED, 2=INCREASED, 3=DECREASED
+    if (mode < 0 || mode > 3) {
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Invalid filter mode: %d", mode);
+        return 0;
+    }
 
-    std::lock_guard<std::mutex> lockResult(searchResultsMutex);
-    std::lock_guard<std::mutex> lockFuzzy(fuzzyMutex);
+    std::lock(searchResultsMutex, fuzzyMutex);
+    std::lock_guard<std::mutex> lk1(searchResultsMutex, std::adopt_lock);
+    std::lock_guard<std::mutex> lk2(fuzzyMutex, std::adopt_lock);
 
     if (fuzzySnapshots.empty()) {
         return 0;
@@ -561,6 +581,7 @@ Java_com_techted89_gameex_NativeScanner_filterFuzzy(
     // 2. Subsequent Filter (searchResults has data): Scan only searchResults.
 
     bool isInitialFilter = searchResults.empty();
+    const size_t MAX_RESULTS = 100000;
 
     if (isInitialFilter) {
         // Path A: Initial Filter - Iterate all snapshots
@@ -568,6 +589,9 @@ Java_com_techted89_gameex_NativeScanner_filterFuzzy(
         std::vector<uint8_t> currentBuffer(CHUNK_SIZE);
 
         for (auto& snapshot : fuzzySnapshots) {
+            // Check cap
+            if (searchResults.size() >= MAX_RESULTS) break;
+
             size_t size = snapshot.data.size();
             if (size > CHUNK_SIZE) currentBuffer.resize(size);
 
@@ -579,6 +603,8 @@ Java_com_techted89_gameex_NativeScanner_filterFuzzy(
             if (bytesRead == (ssize_t)size) {
                 // Compare int-by-int (4 bytes alignment)
                 for (size_t i = 0; i + 4 <= size; i += 4) {
+                    if (searchResults.size() >= MAX_RESULTS) break;
+
                     int oldVal, currentVal;
                     std::memcpy(&oldVal, &snapshot.data[i], sizeof(int));
                     std::memcpy(&currentVal, &currentBuffer[i], sizeof(int));
@@ -649,8 +675,11 @@ Java_com_techted89_gameex_NativeScanner_filterFuzzy(
         searchResults.erase(it, searchResults.end());
     }
 
-    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Filter Complete. Remaining: %zu", searchResults.size());
-    return (jint)searchResults.size();
+    size_t resultCount = searchResults.size();
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Filter Complete. Remaining: %zu", resultCount);
+
+    // Clamp return value to avoid overflow
+    return (jint)std::min(resultCount, (size_t)INT_MAX);
 }
 
 extern "C"

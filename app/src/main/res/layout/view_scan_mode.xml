@@ -6,7 +6,33 @@
     android:orientation="vertical"
     android:padding="8dp">
 
+    <RadioGroup
+        android:id="@+id/rg_scan_mode"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:checkedButton="@+id/rb_exact"
+        android:layout_marginBottom="8dp">
+        <RadioButton
+            android:id="@+id/rb_exact"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Exact"
+            android:textColor="#FFFFFF"
+            android:buttonTint="@color/primary_hacker_green"/>
+        <RadioButton
+            android:id="@+id/rb_fuzzy"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Fuzzy"
+            android:textColor="#FFFFFF"
+            android:buttonTint="@color/primary_hacker_green"
+            android:layout_marginStart="16dp"/>
+    </RadioGroup>
+
     <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/layout_search_input"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:hint="@string/hint_search_value"
@@ -22,6 +48,7 @@
     </com.google.android.material.textfield.TextInputLayout>
 
     <HorizontalScrollView
+        android:id="@+id/layout_search_types"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
@@ -73,6 +100,61 @@
 
         </com.google.android.material.chip.ChipGroup>
     </HorizontalScrollView>
+
+    <LinearLayout
+        android:id="@+id/layout_fuzzy_options"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:layout_marginTop="8dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:weightSum="2">
+            <Button
+                android:id="@+id/btn_fuzzy_changed"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Changed"
+                android:textSize="12sp"
+                android:layout_marginEnd="4dp"/>
+            <Button
+                android:id="@+id/btn_fuzzy_unchanged"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Unchanged"
+                android:textSize="12sp"
+                android:layout_marginStart="4dp"/>
+        </LinearLayout>
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:weightSum="2"
+            android:layout_marginTop="4dp">
+            <Button
+                android:id="@+id/btn_fuzzy_increased"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Increased"
+                android:textSize="12sp"
+                android:layout_marginEnd="4dp"/>
+            <Button
+                android:id="@+id/btn_fuzzy_decreased"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Decreased"
+                android:textSize="12sp"
+                android:layout_marginStart="4dp"/>
+        </LinearLayout>
+    </LinearLayout>
 
     <TextView
         android:layout_width="match_parent"

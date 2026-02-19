@@ -1,27 +1,33 @@
 package com.techted89.gameex
 
 object NativeScanner {
+    // Fuzzy Scan Modes
+    const val FUZZY_CHANGED = 0
+    const val FUZZY_UNCHANGED = 1
+    const val FUZZY_INCREASED = 2
+    const val FUZZY_DECREASED = 3
+
     init {
         System.loadLibrary("native-scanner")
     }
 
     /**
- * Read a sequence of bytes from the memory of a target process.
- *
- * @param pid The target process identifier (PID).
- * @param address The starting absolute memory address in the target process to read from.
- * @param size The number of bytes to read.
- * @return A byte array containing the bytes read; its length will be equal to `size` when the read succeeds.
- */
-external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
+     * Read a sequence of bytes from the memory of a target process.
+     *
+     * @param pid The target process identifier (PID).
+     * @param address The starting absolute memory address in the target process to read from.
+     * @param size The number of bytes to read.
+     * @return A byte array containing the bytes read; its length will be equal to `size` when the read succeeds.
+     */
+    external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
 
     /**
- * Searches the target process's memory for occurrences of a 4-byte integer value.
- *
- * @param pid The target process ID.
- * @param value The 4-byte integer value to search for.
- * @return The number of matches found.
- */
+     * Searches the target process's memory for occurrences of a 4-byte integer value.
+     *
+     * @param pid The target process ID.
+     * @param value The 4-byte integer value to search for.
+     * @return The number of matches found.
+     */
     external fun searchMemory(pid: Int, value: Int): Int
 
     /**
@@ -30,9 +36,15 @@ external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
     external fun searchMemoryString(pid: Int, query: String): Int
 
     /**
-     * Starts a fuzzy scan by dumping current memory snapshot.
+     * Starts a fuzzy scan by creating an in-memory snapshot.
      */
-    external fun startFuzzyScan(pid: Int, dumpPath: String)
+    external fun startFuzzyScan(pid: Int)
+
+    /**
+     * Filters the fuzzy search results based on the comparison mode.
+     * @param mode One of FUZZY_CHANGED, FUZZY_UNCHANGED, FUZZY_INCREASED, FUZZY_DECREASED.
+     */
+    external fun filterFuzzy(pid: Int, mode: Int): Int
 
     /**
      * Filters the current search results, keeping only those that match the new value.

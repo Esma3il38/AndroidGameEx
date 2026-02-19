@@ -9,14 +9,15 @@ object RootUtils {
     fun requestRoot(): Boolean {
         var process: Process? = null
         return try {
-            process = Runtime.getRuntime().exec("su")
-            DataOutputStream(process.outputStream).use { os ->
+            val p = Runtime.getRuntime().exec("su")
+            process = p
+            DataOutputStream(p.outputStream).use { os ->
                 os.writeBytes("echo root_access_check\n")
                 os.writeBytes("exit\n")
                 os.flush()
             }
-            process.waitFor()
-            process.exitValue() == 0
+            p.waitFor()
+            p.exitValue() == 0
         } catch (e: Exception) {
             false
         } finally {
@@ -30,7 +31,7 @@ object RootUtils {
         while (line != null) {
             // Typical ps output: USER PID ... NAME
             val parts = line.trim().split(WHITESPACE_REGEX)
-            if (parts.size >= 9) {
+            if (parts.size >= 8) {
                 // Assuming standard android ps output where PID is usually 2nd column
                 // and Name is last column.
                 val pidStr = parts[1]
@@ -52,19 +53,20 @@ object RootUtils {
         // Execute ps -A via su to see all processes
         var process: Process? = null
         try {
-            process = Runtime.getRuntime().exec("su")
+            val p = Runtime.getRuntime().exec("su")
+            process = p
 
-            DataOutputStream(process.outputStream).use { os ->
+            DataOutputStream(p.outputStream).use { os ->
                 os.writeBytes("ps -A\n")
                 os.writeBytes("exit\n")
                 os.flush()
             }
 
-            process.inputStream.bufferedReader().use { reader ->
+            p.inputStream.bufferedReader().use { reader ->
                 processes.addAll(parsePsOutput(reader))
             }
 
-            process.waitFor()
+            p.waitFor()
         } catch (e: Exception) {
             e.printStackTrace()
             // Fallback to non-root ps if su fails?

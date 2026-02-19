@@ -191,6 +191,17 @@ class FloatingOverlayService : Service() {
         val progressScan = viewScan.findViewById<View>(R.id.progress_scan)
         val chipGroupType = viewScan.findViewById<com.google.android.material.chip.ChipGroup>(R.id.chip_group_type)
 
+        // Fuzzy Scan Elements
+        val rgScanMode = viewScan.findViewById<android.widget.RadioGroup>(R.id.rg_scan_mode)
+        val layoutFuzzyOptions = viewScan.findViewById<View>(R.id.layout_fuzzy_options)
+        val layoutSearchInput = viewScan.findViewById<View>(R.id.layout_search_input)
+        val layoutSearchTypes = viewScan.findViewById<View>(R.id.layout_search_types)
+
+        val btnFuzzyChanged = viewScan.findViewById<Button>(R.id.btn_fuzzy_changed)
+        val btnFuzzyUnchanged = viewScan.findViewById<Button>(R.id.btn_fuzzy_unchanged)
+        val btnFuzzyIncreased = viewScan.findViewById<Button>(R.id.btn_fuzzy_increased)
+        val btnFuzzyDecreased = viewScan.findViewById<Button>(R.id.btn_fuzzy_decreased)
+
         // Speed Hack
         val toggleSpeed = dashboardView.findViewById<android.widget.ToggleButton>(R.id.toggle_speed)
         toggleSpeed.setOnCheckedChangeListener { _, isChecked ->
@@ -320,9 +331,43 @@ class FloatingOverlayService : Service() {
             }
         }
 
+        rgScanMode.setOnCheckedChangeListener { _, checkedId ->
+            if (checkedId == R.id.rb_exact) {
+                layoutSearchInput.visibility = View.VISIBLE
+                layoutSearchTypes.visibility = View.VISIBLE
+                layoutFuzzyOptions.visibility = View.GONE
+                btnScan.text = "New Scan"
+            } else {
+                layoutSearchInput.visibility = View.GONE
+                layoutSearchTypes.visibility = View.GONE
+                layoutFuzzyOptions.visibility = View.VISIBLE
+                btnScan.text = "Start Fuzzy Scan"
+                btnNextScan.visibility = View.GONE
+            }
+        }
+
         fun performScan(isNext: Boolean = false) {
+            val isFuzzy = rgScanMode.checkedRadioButtonId == R.id.rb_fuzzy
+
+            if (isFuzzy && !isNext) {
+                // Start Fuzzy Scan (Create Baseline)
+                Toast.makeText(this, "Creating Fuzzy Baseline...", Toast.LENGTH_SHORT).show()
+                progressScan.visibility = View.VISIBLE
+                btnScan.isEnabled = false
+
+                serviceScope.launch(Dispatchers.IO) {
+                    NativeScanner.startFuzzyScan(targetPid)
+                    withContext(Dispatchers.Main) {
+                         progressScan.visibility = View.GONE
+                         btnScan.isEnabled = true
+                         Toast.makeText(this@FloatingOverlayService, "Baseline Created. Change value in game.", Toast.LENGTH_LONG).show()
+                    }
+                }
+                return
+            }
+
             val valueStr = etSearchValue.text.toString()
-            if (valueStr.isEmpty()) {
+            if (!isFuzzy && valueStr.isEmpty()) {
                 etSearchValue.error = "Enter a value"
                 return
             }
@@ -390,6 +435,42 @@ class FloatingOverlayService : Service() {
                 }
             }
         }
+
+        fun performFuzzyFilter(mode: Int) {
+             Toast.makeText(this, "Filtering Fuzzy...", Toast.LENGTH_SHORT).show()
+             progressScan.visibility = View.VISIBLE
+
+             serviceScope.launch(Dispatchers.IO) {
+                 val count = NativeScanner.filterFuzzy(targetPid, mode)
+                 val addresses = NativeScanner.getResults(100)
+
+                 val results = addresses.map { addr ->
+                        val bytes = NativeScanner.readMemory(targetPid, addr, 4)
+                        val hexVal = bytes.joinToString("") { "%02X".format(it) }
+                        MemoryResult(addr, "$hexVal (Fuzzy)")
+                 }
+
+                 withContext(Dispatchers.Main) {
+                     progressScan.visibility = View.GONE
+                     adapter.updateData(results)
+                     switchTab("RESULTS")
+
+                     if (results.isEmpty()) {
+                        layoutEmptyState.visibility = View.VISIBLE
+                        rvResults.visibility = View.GONE
+                     } else {
+                        layoutEmptyState.visibility = View.GONE
+                        rvResults.visibility = View.VISIBLE
+                     }
+                     Toast.makeText(this@FloatingOverlayService, "Found: $count", Toast.LENGTH_SHORT).show()
+                 }
+             }
+        }
+
+        btnFuzzyChanged.setOnClickListener { performFuzzyFilter(NativeScanner.FUZZY_CHANGED) }
+        btnFuzzyUnchanged.setOnClickListener { performFuzzyFilter(NativeScanner.FUZZY_UNCHANGED) }
+        btnFuzzyIncreased.setOnClickListener { performFuzzyFilter(NativeScanner.FUZZY_INCREASED) }
+        btnFuzzyDecreased.setOnClickListener { performFuzzyFilter(NativeScanner.FUZZY_DECREASED) }
 
         btnScan.setOnClickListener {
             btnNextScan.visibility = View.GONE

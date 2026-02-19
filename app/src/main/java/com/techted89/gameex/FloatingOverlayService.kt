@@ -327,15 +327,22 @@ class FloatingOverlayService : Service() {
                 return
             }
 
-            // Get selected type (Mock logic)
+            // Get selected type
             val selectedType = when (chipGroupType.checkedChipId) {
-                R.id.chip_type_float -> "Float"
-                R.id.chip_type_double -> "Double"
-                R.id.chip_type_byte -> "Byte"
+                R.id.chip_type_float -> NativeScanner.TYPE_FLOAT
+                R.id.chip_type_double -> NativeScanner.TYPE_DOUBLE
+                R.id.chip_type_byte -> NativeScanner.TYPE_BYTE
+                else -> NativeScanner.TYPE_DWORD
+            }
+
+            val typeName = when(selectedType) {
+                NativeScanner.TYPE_FLOAT -> "Float"
+                NativeScanner.TYPE_DOUBLE -> "Double"
+                NativeScanner.TYPE_BYTE -> "Byte"
                 else -> "Dword"
             }
 
-            Toast.makeText(this, "Scanning $selectedType...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Scanning $typeName...", Toast.LENGTH_SHORT).show()
 
             // Show Loading
             progressScan.visibility = View.VISIBLE
@@ -347,17 +354,25 @@ class FloatingOverlayService : Service() {
                 var scanError: String? = null
                 val results = try {
                     if (isNext) {
-                        NativeScanner.filterMemoryString(targetPid, valueStr)
+                        NativeScanner.filterMemory(targetPid, valueStr, selectedType)
                     } else {
-                        NativeScanner.searchMemoryString(targetPid, valueStr)
+                        NativeScanner.searchMemory(targetPid, valueStr, selectedType)
                     }
 
                     val addresses = NativeScanner.getResults(100)
 
+                    // Read byte size based on type
+                    val readSize = when(selectedType) {
+                        NativeScanner.TYPE_DOUBLE, NativeScanner.TYPE_QWORD -> 8
+                        NativeScanner.TYPE_BYTE -> 1
+                        NativeScanner.TYPE_WORD -> 2
+                        else -> 4
+                    }
+
                     addresses.map { addr ->
-                        val bytes = NativeScanner.readMemory(targetPid, addr, 4)
+                        val bytes = NativeScanner.readMemory(targetPid, addr, readSize)
                         val hexVal = bytes.joinToString("") { "%02X".format(it) }
-                        MemoryResult(addr, "$hexVal ($valueStr)")
+                        MemoryResult(addr, "$hexVal ($typeName)")
                     }
                 } catch (e: Exception) {
                     scanError = e.message

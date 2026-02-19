@@ -5,6 +5,16 @@ object NativeScanner {
         System.loadLibrary("native-scanner")
     }
 
+    // Supported Data Types
+    const val TYPE_BYTE = 1
+    const val TYPE_WORD = 2
+    const val TYPE_DWORD = 4
+    const val TYPE_QWORD = 8
+    const val TYPE_FLOAT = 16
+    const val TYPE_DOUBLE = 32
+    const val TYPE_AUTO = 64
+    const val TYPE_XOR = 128
+
     /**
  * Read a sequence of bytes from the memory of a target process.
  *
@@ -13,7 +23,7 @@ object NativeScanner {
  * @param size The number of bytes to read.
  * @return A byte array containing the bytes read; its length will be equal to `size` when the read succeeds.
  */
-external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
+    external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
 
     /**
  * Searches the target process's memory for occurrences of a 4-byte integer value.
@@ -28,6 +38,14 @@ external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
      * Searches memory using a query string (e.g., "100~200" for range, "100X8" for XOR).
      */
     external fun searchMemoryString(pid: Int, query: String): Int
+
+    /**
+     * Searches memory with a specific data type (Byte, Word, Dword, Float, Double).
+     * @param pid Target Process ID
+     * @param valueStr Value to search (e.g. "100.5", "10~20")
+     * @param type Data Type constant (TYPE_FLOAT, etc.)
+     */
+    external fun searchMemory(pid: Int, valueStr: String, type: Int): Int
 
     /**
      * Starts a fuzzy scan by dumping current memory snapshot.
@@ -51,6 +69,11 @@ external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
      * @return The number of remaining matches.
      */
     external fun filterMemoryString(pid: Int, query: String): Int
+
+    /**
+     * Filters memory with a specific data type.
+     */
+    external fun filterMemory(pid: Int, valueStr: String, type: Int): Int
 
     /**
      * Retrieves a list of loaded modules (libraries) in the target process.

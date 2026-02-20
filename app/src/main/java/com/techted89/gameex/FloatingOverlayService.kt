@@ -270,8 +270,8 @@ class FloatingOverlayService : Service() {
                             // Reusing MemoryResultAdapter for simplicity since it just shows two texts
                             // In real app, create ModuleAdapter
                             val moduleResults = modules.map { MemoryResult(0, it) }
-                            val adapter = MemoryResultAdapter(moduleResults)
-                            rvModulesList.adapter = adapter
+                            val moduleAdapter = MemoryResultAdapter(moduleResults)
+                            rvModulesList.adapter = moduleAdapter
                         }
                     }
                 }
@@ -511,7 +511,12 @@ class FloatingOverlayService : Service() {
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE
+            },
             WindowManager.LayoutParams.FLAG_DIM_BEHIND,
             PixelFormat.TRANSLUCENT
         )

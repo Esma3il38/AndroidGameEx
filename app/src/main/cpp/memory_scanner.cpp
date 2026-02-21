@@ -99,14 +99,81 @@ SearchCondition parseSearchQuery(const std::string& query) {
 }
 
 /**
+ * @brief Opens a pipe to read /proc/[pid]/maps using su.
+ */
+FILE* openProcMapsStream(int pid) {
+    int pipefd[2];
+    if (pipe(pipefd) == -1) {
+        return nullptr;
+    }
+
+    std::string path = "/proc/" + std::to_string(pid) + "/maps";
+    std::string cmd = "cat " + path + " 2>/dev/null";
+
+    pid_t child = fork();
+    if (child == -1) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return nullptr;
+    }
+
+    if (child == 0) {
+        // Child process
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[1]);
+
+        execlp("su", "su", "-c", cmd.c_str(), nullptr);
+        _exit(127); // exec failed
+    }
+
+    // Parent process
+    close(pipefd[1]);
+    return fdopen(pipefd[0], "r");
+}
+
+/**
+ * @brief Parses a single line from /proc/[pid]/maps.
+ */
+bool parseMapLine(const char* line, MemoryRegion& region, std::string& pathOut) {
+    char permissions[5];
+    char dev[10];
+    long inode;
+    char path[512] = {0};
+    int pos = 0;
+
+    int parsed = sscanf(line, "%" SCNxPTR "-%" SCNxPTR " %4s %*s %9s %ld%n",
+           &region.startAddress, &region.endAddress, permissions, dev, &inode, &pos);
+
+    if (parsed < 5) return false;
+
+    if (pos > 0 && (size_t)pos < strlen(line)) {
+        const char* p = line + pos;
+        while (*p == ' ' || *p == '\t') p++;
+        strncpy(path, p, sizeof(path) - 1);
+        path[sizeof(path) - 1] = '\0';
+        size_t len = strlen(path);
+        if (len > 0 && path[len-1] == '\n') path[len-1] = '\0';
+    } else {
+        path[0] = '\0';
+    }
+    pathOut = path;
+
+    region.isReadable = (permissions[0] == 'r');
+    region.isWritable = (permissions[1] == 'w');
+    region.isExecutable = (permissions[2] == 'x');
+
+    return true;
+}
+
+/**
  * @brief Collects readable and writable memory regions for a given process.
  * Uses 'su' to bypass permission restrictions.
  */
 std::vector<MemoryRegion> readProcMaps(int pid) {
     std::vector<MemoryRegion> regions;
-    std::string cmd = "su -c cat /proc/" + std::to_string(pid) + "/maps 2>/dev/null";
 
-    FILE* pipe = popen(cmd.c_str(), "r");
+    FILE* pipe = openProcMapsStream(pid);
     bool usedSu = true;
 
     if (!pipe) {
@@ -116,41 +183,17 @@ std::vector<MemoryRegion> readProcMaps(int pid) {
     }
 
     if (!pipe) {
-        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Failed to open maps: %s", cmd.c_str());
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Failed to open maps");
         return regions;
     }
 
     char line[1024];
     while (fgets(line, sizeof(line), pipe)) {
         MemoryRegion region;
-        char permissions[5];
-        char dev[10];
-        long inode;
-        char path[512] = {0};
-        int pos = 0;
-
-        int parsed = sscanf(line, "%" SCNxPTR "-%" SCNxPTR " %4s %*s %9s %ld%n",
-               &region.startAddress, &region.endAddress, permissions, dev, &inode, &pos);
-
-        if (parsed < 5) continue;
-
-        if (pos > 0 && (size_t)pos < strlen(line)) {
-            const char* p = line + pos;
-            while (*p == ' ' || *p == '\t') p++;
-            strncpy(path, p, sizeof(path) - 1);
-            path[sizeof(path) - 1] = '\0';
-            size_t len = strlen(path);
-            if (len > 0 && path[len-1] == '\n') path[len-1] = '\0';
-        } else {
-            path[0] = '\0';
-        }
-
-        region.isReadable = (permissions[0] == 'r');
-        region.isWritable = (permissions[1] == 'w');
-        region.isExecutable = (permissions[2] == 'x');
+        std::string pathStr;
+        if (!parseMapLine(line, region, pathStr)) continue;
 
         if (region.isReadable && region.isWritable) {
-             std::string pathStr(path);
              if (pathStr.find("/dev/") == std::string::npos &&
                  pathStr.find(".so") == std::string::npos &&
                  pathStr.find(".ttf") == std::string::npos &&
@@ -160,7 +203,11 @@ std::vector<MemoryRegion> readProcMaps(int pid) {
         }
     }
 
-    if (usedSu) pclose(pipe); else fclose(pipe);
+    // For manual pipe/fork, we just close the file handle.
+    // Waitpid is handled by OS init or skipped here as we just read till EOF.
+    fclose(pipe);
+    if (usedSu) wait(nullptr);
+
     return regions;
 }
 
@@ -549,6 +596,85 @@ Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
     __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Started. Snapshots: %zu", fuzzySnapshots.size());
 }
 
+int filterFuzzyInitialScan(int pid, int mode, std::vector<jlong>& newResults) {
+    int matchCount = 0;
+    std::lock_guard<std::mutex> fuzzyLock(fuzzyMutex);
+
+    for (const auto& snap : fuzzySnapshots) {
+         size_t len = snap.data.size();
+         for (size_t offset = 0; offset + 4 <= len; offset += 4) {
+             int oldVal;
+             memcpy(&oldVal, &snap.data[offset], 4);
+
+             int currentVal;
+             struct iovec local = {&currentVal, 4};
+             struct iovec remote = {(void*)(snap.startAddress + offset), 4};
+             if (process_vm_readv(pid, &local, 1, &remote, 1, 0) == 4) {
+                 bool match = false;
+                 switch(mode) {
+                     case 0: match = (currentVal != oldVal); break;
+                     case 1: match = (currentVal == oldVal); break;
+                     case 2: match = (currentVal > oldVal); break;
+                     case 3: match = (currentVal < oldVal); break;
+                 }
+                 if (match) {
+                     newResults.push_back((jlong)(snap.startAddress + offset));
+                     matchCount++;
+                     if (matchCount >= 100000) return matchCount;
+                 }
+             }
+         }
+    }
+    return matchCount;
+}
+
+int filterFuzzySubsequentScan(int pid, int mode) {
+    std::lock_guard<std::mutex> fuzzyLock(fuzzyMutex);
+    std::lock_guard<std::mutex> resLock(searchResultsMutex);
+
+    auto it = std::remove_if(searchResults.begin(), searchResults.end(), [&](jlong addr) {
+         auto ub = std::upper_bound(fuzzySnapshots.begin(), fuzzySnapshots.end(), (uintptr_t)addr,
+             [](uintptr_t a, const SnapshotRegion& r) { return a < r.startAddress; });
+
+         SnapshotRegion* foundRegion = nullptr;
+         if (ub != fuzzySnapshots.begin()) {
+             SnapshotRegion* candidate = const_cast<SnapshotRegion*>(&(*(--ub)));
+             if (addr >= candidate->startAddress && addr < candidate->startAddress + candidate->data.size()) {
+                 foundRegion = candidate;
+             }
+         }
+
+         if (!foundRegion) return true;
+
+         size_t offset = addr - foundRegion->startAddress;
+         if (offset + 4 > foundRegion->data.size()) return true;
+
+         int oldVal;
+         memcpy(&oldVal, &foundRegion->data[offset], 4);
+
+         int currentVal;
+         struct iovec local = {&currentVal, 4};
+         struct iovec remote = {(void*)(uintptr_t)addr, 4};
+         if (process_vm_readv(pid, &local, 1, &remote, 1, 0) != 4) return true;
+
+         bool match = false;
+         switch(mode) {
+             case 0: match = (currentVal != oldVal); break;
+             case 1: match = (currentVal == oldVal); break;
+             case 2: match = (currentVal > oldVal); break;
+             case 3: match = (currentVal < oldVal); break;
+         }
+
+         if (match) {
+             memcpy(&foundRegion->data[offset], &currentVal, 4);
+         }
+
+         return !match;
+    });
+    searchResults.erase(it, searchResults.end());
+    return (int)searchResults.size();
+}
+
 extern "C"
 JNIEXPORT jint JNICALL
 Java_com_techted89_gameex_NativeScanner_filterFuzzy(
@@ -560,96 +686,22 @@ Java_com_techted89_gameex_NativeScanner_filterFuzzy(
     // 0=CHANGED, 1=UNCHANGED, 2=INCREASED, 3=DECREASED
 
     std::vector<jlong> newResults;
-    int matchCount = 0;
-
     bool isFirstFilter = false;
     {
         std::lock_guard<std::mutex> lock(searchResultsMutex);
         isFirstFilter = searchResults.empty();
     }
 
-    std::lock_guard<std::mutex> fuzzyLock(fuzzyMutex);
-
     if (isFirstFilter) {
-        for (const auto& snap : fuzzySnapshots) {
-             size_t len = snap.data.size();
-             for (size_t offset = 0; offset + 4 <= len; offset += 4) {
-                 int oldVal;
-                 memcpy(&oldVal, &snap.data[offset], 4);
-
-                 int currentVal;
-                 struct iovec local = {&currentVal, 4};
-                 struct iovec remote = {(void*)(snap.startAddress + offset), 4};
-                 if (process_vm_readv(pid, &local, 1, &remote, 1, 0) == 4) {
-                     bool match = false;
-                     switch(mode) {
-                         case 0: match = (currentVal != oldVal); break;
-                         case 1: match = (currentVal == oldVal); break;
-                         case 2: match = (currentVal > oldVal); break;
-                         case 3: match = (currentVal < oldVal); break;
-                     }
-                     if (match) {
-                         newResults.push_back((jlong)(snap.startAddress + offset));
-                         matchCount++;
-                         if (matchCount >= 100000) goto filter_complete;
-                     }
-                 }
-             }
-        }
-    } else {
-        std::lock_guard<std::mutex> resLock(searchResultsMutex);
-
-        auto it = std::remove_if(searchResults.begin(), searchResults.end(), [&](jlong addr) {
-             auto ub = std::upper_bound(fuzzySnapshots.begin(), fuzzySnapshots.end(), (uintptr_t)addr,
-                 [](uintptr_t a, const SnapshotRegion& r) { return a < r.startAddress; });
-
-             SnapshotRegion* foundRegion = nullptr;
-             if (ub != fuzzySnapshots.begin()) {
-                 SnapshotRegion* candidate = const_cast<SnapshotRegion*>(&(*(--ub)));
-                 if (addr >= candidate->startAddress && addr < candidate->startAddress + candidate->data.size()) {
-                     foundRegion = candidate;
-                 }
-             }
-
-             if (!foundRegion) return true;
-
-             size_t offset = addr - foundRegion->startAddress;
-             if (offset + 4 > foundRegion->data.size()) return true;
-
-             int oldVal;
-             memcpy(&oldVal, &foundRegion->data[offset], 4);
-
-             int currentVal;
-             struct iovec local = {&currentVal, 4};
-             struct iovec remote = {(void*)(uintptr_t)addr, 4};
-             if (process_vm_readv(pid, &local, 1, &remote, 1, 0) != 4) return true;
-
-             bool match = false;
-             switch(mode) {
-                 case 0: match = (currentVal != oldVal); break;
-                 case 1: match = (currentVal == oldVal); break;
-                 case 2: match = (currentVal > oldVal); break;
-                 case 3: match = (currentVal < oldVal); break;
-             }
-
-             if (match) {
-                 memcpy(&foundRegion->data[offset], &currentVal, 4);
-             }
-
-             return !match;
-        });
-        searchResults.erase(it, searchResults.end());
-        return (jint)searchResults.size();
-    }
-
-filter_complete:
-    {
+        filterFuzzyInitialScan(pid, mode, newResults);
         std::lock_guard<std::mutex> lock(searchResultsMutex);
-        if (isFirstFilter) {
-            searchResults = std::move(newResults);
-        }
-        return (jint)searchResults.size();
+        searchResults = std::move(newResults);
+    } else {
+        filterFuzzySubsequentScan(pid, mode);
     }
+
+    std::lock_guard<std::mutex> lock(searchResultsMutex);
+    return (jint)searchResults.size();
 }
 
 extern "C"
@@ -791,9 +843,8 @@ Java_com_techted89_gameex_NativeScanner_getLoadedModules(
         jobject /* this */,
         jint pid) {
     std::set<std::string> modules;
-    std::string cmd = "su -c cat /proc/" + std::to_string(pid) + "/maps 2>/dev/null";
 
-    FILE* pipe = popen(cmd.c_str(), "r");
+    FILE* pipe = openProcMapsStream(pid);
     bool usedSu = true;
 
     if (!pipe) {
@@ -815,7 +866,8 @@ Java_com_techted89_gameex_NativeScanner_getLoadedModules(
                 }
             }
         }
-        if (usedSu) pclose(pipe); else fclose(pipe);
+        fclose(pipe);
+        if (usedSu) wait(nullptr);
     }
 
     jclass stringClass = env->FindClass("java/lang/String");

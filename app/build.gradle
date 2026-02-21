@@ -20,10 +20,6 @@ android {
                 cppFlags "-std=c++17"
             }
         }
-
-        packagingOptions {
-            jniLibs.useLegacyPackaging = true
-        }
     }
 
     externalNativeBuild {

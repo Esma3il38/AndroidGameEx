@@ -19,6 +19,7 @@
 #include <sys/mman.h>
 #include <errno.h>
 #include <cstdio>
+#include <inttypes.h>
 
 // Forward Declaration for JNI compatibility to resolve circular dependency
 extern "C" JNIEXPORT jint JNICALL Java_com_techted89_gameex_NativeScanner_searchMemoryString(JNIEnv* env, jobject thiz, jint pid, jstring queryString);
@@ -100,11 +101,12 @@ SearchCondition parseSearchQuery(const std::string& query) {
 
 /**
  * @brief Opens a pipe to read /proc/[pid]/maps using su.
+ * @return A pair containing the file pointer and child PID. If failed, returns {nullptr, -1}.
  */
-FILE* openProcMapsStream(int pid) {
+std::pair<FILE*, pid_t> openProcMapsStream(int pid) {
     int pipefd[2];
     if (pipe(pipefd) == -1) {
-        return nullptr;
+        return {nullptr, -1};
     }
 
     std::string path = "/proc/" + std::to_string(pid) + "/maps";
@@ -114,7 +116,7 @@ FILE* openProcMapsStream(int pid) {
     if (child == -1) {
         close(pipefd[0]);
         close(pipefd[1]);
-        return nullptr;
+        return {nullptr, -1};
     }
 
     if (child == 0) {
@@ -129,7 +131,7 @@ FILE* openProcMapsStream(int pid) {
 
     // Parent process
     close(pipefd[1]);
-    return fdopen(pipefd[0], "r");
+    return {fdopen(pipefd[0], "r"), child};
 }
 
 /**
@@ -173,45 +175,50 @@ bool parseMapLine(const char* line, MemoryRegion& region, std::string& pathOut) 
 std::vector<MemoryRegion> readProcMaps(int pid) {
     std::vector<MemoryRegion> regions;
 
-    FILE* pipe = openProcMapsStream(pid);
+    auto [pipe, childPid] = openProcMapsStream(pid);
     bool usedSu = true;
 
-    if (!pipe) {
+    // Helper lambda to read from stream
+    auto readFromStream = [&](FILE* stream) {
+        char line[1024];
+        while (fgets(line, sizeof(line), stream)) {
+            MemoryRegion region;
+            std::string pathStr;
+            if (!parseMapLine(line, region, pathStr)) continue;
+
+            if (region.isReadable && region.isWritable) {
+                 if (pathStr.find("/dev/") == std::string::npos &&
+                     pathStr.find(".so") == std::string::npos &&
+                     pathStr.find(".ttf") == std::string::npos &&
+                     pathStr.find("[vvar]") == std::string::npos) {
+                    regions.push_back(region);
+                 }
+            }
+        }
+    };
+
+    if (pipe) {
+        readFromStream(pipe);
+        fclose(pipe);
+        waitpid(childPid, nullptr, 0);
+    } else {
         usedSu = false;
+    }
+
+    // Fallback if su yielded no results or pipe failed
+    if (regions.empty()) {
         std::string mapsPath = "/proc/" + std::to_string(pid) + "/maps";
-        pipe = fopen(mapsPath.c_str(), "r");
-    }
-
-    if (!pipe) {
-        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Failed to open maps");
-        return regions;
-    }
-
-    char line[1024];
-    while (fgets(line, sizeof(line), pipe)) {
-        MemoryRegion region;
-        std::string pathStr;
-        if (!parseMapLine(line, region, pathStr)) continue;
-
-        if (region.isReadable && region.isWritable) {
-             if (pathStr.find("/dev/") == std::string::npos &&
-                 pathStr.find(".so") == std::string::npos &&
-                 pathStr.find(".ttf") == std::string::npos &&
-                 pathStr.find("[vvar]") == std::string::npos) {
-                regions.push_back(region);
-             }
+        FILE* fp = fopen(mapsPath.c_str(), "r");
+        if (fp) {
+            readFromStream(fp);
+            fclose(fp);
         }
     }
-
-    // For manual pipe/fork, we just close the file handle.
-    // Waitpid is handled by OS init or skipped here as we just read till EOF.
-    fclose(pipe);
-    if (usedSu) wait(nullptr);
 
     return regions;
 }
 
-// Helper to safely write memory using ptrace
+// Helper to safely write memory using ptrace using word-sized access
 bool ptraceWrite(int pid, uintptr_t addr, const void* data, size_t size) {
     const uint8_t* src = (const uint8_t*)data;
     uintptr_t currentAddr = addr;
@@ -612,10 +619,10 @@ int filterFuzzyInitialScan(int pid, int mode, std::vector<jlong>& newResults) {
              if (process_vm_readv(pid, &local, 1, &remote, 1, 0) == 4) {
                  bool match = false;
                  switch(mode) {
-                     case 0: match = (currentVal != oldVal); break;
-                     case 1: match = (currentVal == oldVal); break;
-                     case 2: match = (currentVal > oldVal); break;
-                     case 3: match = (currentVal < oldVal); break;
+                     case 0: match = (currentVal != oldVal); break; // CHANGED
+                     case 1: match = (currentVal == oldVal); break; // UNCHANGED
+                     case 2: match = (currentVal > oldVal); break;  // INCREASED
+                     case 3: match = (currentVal < oldVal); break;  // DECREASED
                  }
                  if (match) {
                      newResults.push_back((jlong)(snap.startAddress + offset));
@@ -844,18 +851,13 @@ Java_com_techted89_gameex_NativeScanner_getLoadedModules(
         jint pid) {
     std::set<std::string> modules;
 
-    FILE* pipe = openProcMapsStream(pid);
+    auto [pipe, childPid] = openProcMapsStream(pid);
     bool usedSu = true;
 
-    if (!pipe) {
-        usedSu = false;
-        std::string mapsPath = "/proc/" + std::to_string(pid) + "/maps";
-        pipe = fopen(mapsPath.c_str(), "r");
-    }
-
-    if (pipe) {
+    // Helper lambda to read from stream
+    auto readFromStream = [&](FILE* stream) {
         char line[1024];
-        while (fgets(line, sizeof(line), pipe)) {
+        while (fgets(line, sizeof(line), stream)) {
             if (strstr(line, ".so")) {
                 std::string s(line);
                 size_t lastSpace = s.find_last_of(" \t");
@@ -866,8 +868,23 @@ Java_com_techted89_gameex_NativeScanner_getLoadedModules(
                 }
             }
         }
+    };
+
+    if (pipe) {
+        readFromStream(pipe);
         fclose(pipe);
-        if (usedSu) wait(nullptr);
+        waitpid(childPid, nullptr, 0);
+    } else {
+        usedSu = false;
+    }
+
+    if (modules.empty()) {
+        std::string mapsPath = "/proc/" + std::to_string(pid) + "/maps";
+        FILE* fp = fopen(mapsPath.c_str(), "r");
+        if (fp) {
+            readFromStream(fp);
+            fclose(fp);
+        }
     }
 
     jclass stringClass = env->FindClass("java/lang/String");

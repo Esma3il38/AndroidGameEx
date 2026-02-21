@@ -191,17 +191,6 @@ class FloatingOverlayService : Service() {
         val progressScan = viewScan.findViewById<View>(R.id.progress_scan)
         val chipGroupType = viewScan.findViewById<com.google.android.material.chip.ChipGroup>(R.id.chip_group_type)
 
-        // Fuzzy Elements
-        val rgScanMode = viewScan.findViewById<android.widget.RadioGroup>(R.id.rg_scan_mode)
-        val layoutExact = viewScan.findViewById<View>(R.id.layout_exact_options)
-        val layoutFuzzy = viewScan.findViewById<View>(R.id.layout_fuzzy_options)
-
-        val btnFuzzyStart = viewScan.findViewById<Button>(R.id.btn_fuzzy_start)
-        val btnFuzzyChanged = viewScan.findViewById<Button>(R.id.btn_fuzzy_changed)
-        val btnFuzzyUnchanged = viewScan.findViewById<Button>(R.id.btn_fuzzy_unchanged)
-        val btnFuzzyIncreased = viewScan.findViewById<Button>(R.id.btn_fuzzy_increased)
-        val btnFuzzyDecreased = viewScan.findViewById<Button>(R.id.btn_fuzzy_decreased)
-
         // Speed Hack
         val toggleSpeed = dashboardView.findViewById<android.widget.ToggleButton>(R.id.toggle_speed)
         toggleSpeed.setOnCheckedChangeListener { _, isChecked ->
@@ -410,82 +399,6 @@ class FloatingOverlayService : Service() {
         btnNextScan.setOnClickListener {
             performScan(isNext = true)
         }
-
-        rgScanMode.setOnCheckedChangeListener { _, checkedId ->
-            if (checkedId == R.id.rb_mode_exact) {
-                layoutExact.visibility = View.VISIBLE
-                layoutFuzzy.visibility = View.GONE
-                btnScan.visibility = View.VISIBLE
-                btnNextScan.visibility = if (adapter.itemCount > 0) View.VISIBLE else View.GONE
-            } else {
-                layoutExact.visibility = View.GONE
-                layoutFuzzy.visibility = View.VISIBLE
-                btnScan.visibility = View.GONE
-                btnNextScan.visibility = View.GONE
-            }
-        }
-
-        fun performFuzzyScan(mode: Int, isStart: Boolean = false) {
-            Toast.makeText(this, if (isStart) "Starting Fuzzy Scan..." else "Filtering Fuzzy Scan...", Toast.LENGTH_SHORT).show()
-            progressScan.visibility = View.VISIBLE
-
-            // Disable buttons
-            btnFuzzyStart.isEnabled = false
-
-            serviceScope.launch(Dispatchers.IO) {
-                var scanError: String? = null
-                val results = try {
-                    if (isStart) {
-                        // path arg is ignored but required by signature
-                        NativeScanner.startFuzzyScan(targetPid, "")
-                        // No results yet, just snapshot
-                        emptyList<MemoryResult>()
-                    } else {
-                        val count = NativeScanner.filterFuzzy(targetPid, mode)
-                        val addresses = NativeScanner.getResults(100)
-                        addresses.map { addr ->
-                            val bytes = NativeScanner.readMemory(targetPid, addr, 4)
-                            val hexVal = bytes.joinToString("") { "%02X".format(it) }
-                            // Convert bytes to int for display (assuming Little Endian)
-                            val intVal = try {
-                                java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN).int
-                            } catch (e: Exception) { 0 }
-                            MemoryResult(addr, "$intVal (0x$hexVal)")
-                        }
-                    }
-                } catch (e: Exception) {
-                    scanError = e.message
-                    emptyList()
-                }
-
-                withContext(Dispatchers.Main) {
-                    progressScan.visibility = View.GONE
-                    btnFuzzyStart.isEnabled = true
-
-                    if (scanError != null) {
-                        Toast.makeText(this@FloatingOverlayService, "Scan Error: $scanError", Toast.LENGTH_SHORT).show()
-                    } else if (isStart) {
-                        Toast.makeText(this@FloatingOverlayService, "Fuzzy Scan Started. Now filter.", Toast.LENGTH_SHORT).show()
-                    } else {
-                        adapter.updateData(results)
-                        switchTab("RESULTS")
-                        if (results.isEmpty()) {
-                            layoutEmptyState.visibility = View.VISIBLE
-                            rvResults.visibility = View.GONE
-                        } else {
-                            layoutEmptyState.visibility = View.GONE
-                            rvResults.visibility = View.VISIBLE
-                        }
-                    }
-                }
-            }
-        }
-
-        btnFuzzyStart.setOnClickListener { performFuzzyScan(0, isStart = true) }
-        btnFuzzyChanged.setOnClickListener { performFuzzyScan(NativeScanner.FUZZY_CHANGED) }
-        btnFuzzyUnchanged.setOnClickListener { performFuzzyScan(NativeScanner.FUZZY_UNCHANGED) }
-        btnFuzzyIncreased.setOnClickListener { performFuzzyScan(NativeScanner.FUZZY_INCREASED) }
-        btnFuzzyDecreased.setOnClickListener { performFuzzyScan(NativeScanner.FUZZY_DECREASED) }
 
         btnHook.setOnClickListener {
              Toast.makeText(this, "Hooking functions...", Toast.LENGTH_SHORT).show()

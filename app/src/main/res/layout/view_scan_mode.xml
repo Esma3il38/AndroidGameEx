@@ -6,110 +6,20 @@
     android:orientation="vertical"
     android:padding="8dp">
 
-    <RadioGroup
-        android:id="@+id/rg_scan_mode"
+    <com.google.android.material.textfield.TextInputLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:checkedButton="@+id/rb_mode_exact">
-
-        <RadioButton
-            android:id="@+id/rb_mode_exact"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Exact"
-            android:textColor="#FFFFFF"
-            android:buttonTint="@color/primary_hacker_green"
-            android:layout_weight="1"/>
-
-        <RadioButton
-            android:id="@+id/rb_mode_fuzzy"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Fuzzy"
-            android:textColor="#FFFFFF"
-            android:buttonTint="@color/primary_hacker_green"
-            android:layout_weight="1"/>
-    </RadioGroup>
-
-    <LinearLayout
-        android:id="@+id/layout_exact_options"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:visibility="visible">
-
-        <com.google.android.material.textfield.TextInputLayout
+        android:hint="@string/hint_search_value"
+        app:helperText="@string/helper_search_value"
+        app:endIconMode="clear_text">
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/et_search_value"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="@string/hint_search_value"
-            app:helperText="@string/helper_search_value"
-            app:endIconMode="clear_text">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/et_search_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="numberSigned"
-                android:imeOptions="actionSearch"
-                android:textColor="#FFFFFF"/>
-        </com.google.android.material.textfield.TextInputLayout>
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/layout_fuzzy_options"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:visibility="gone">
-
-        <Button
-            android:id="@+id/btn_fuzzy_start"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Start Fuzzy Scan (Unknown)"
-            android:backgroundTint="@color/primary_hacker_green"
-            android:textColor="#000000"/>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-            <Button
-                android:id="@+id/btn_fuzzy_changed"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Changed"
-                android:textSize="12sp"/>
-            <Button
-                android:id="@+id/btn_fuzzy_unchanged"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Unchanged"
-                android:textSize="12sp"/>
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-            <Button
-                android:id="@+id/btn_fuzzy_increased"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Increased"
-                android:textSize="12sp"/>
-            <Button
-                android:id="@+id/btn_fuzzy_decreased"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Decreased"
-                android:textSize="12sp"/>
-        </LinearLayout>
-    </LinearLayout>
+            android:inputType="numberSigned"
+            android:imeOptions="actionSearch"
+            android:textColor="#FFFFFF"/>
+    </com.google.android.material.textfield.TextInputLayout>
 
     <HorizontalScrollView
         android:layout_width="match_parent"

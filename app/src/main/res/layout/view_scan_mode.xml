@@ -6,146 +6,248 @@
     android:orientation="vertical"
     android:padding="8dp">
 
-    <com.google.android.material.textfield.TextInputLayout
+    <RadioGroup
+        android:id="@+id/rg_scan_mode"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="@string/hint_search_value"
-        app:helperText="@string/helper_search_value"
-        app:endIconMode="clear_text">
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/et_search_value"
+        android:orientation="horizontal"
+        android:gravity="center">
+
+        <RadioButton
+            android:id="@+id/rb_scan_exact"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Exact Search"
+            android:textColor="#FFFFFF"
+            android:checked="true"
+            android:buttonTint="@color/primary_hacker_green"/>
+
+        <RadioButton
+            android:id="@+id/rb_scan_fuzzy"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Fuzzy Search"
+            android:textColor="#FFFFFF"
+            android:buttonTint="@color/primary_hacker_green"
+            android:layout_marginStart="16dp"/>
+    </RadioGroup>
+
+    <LinearLayout
+        android:id="@+id/layout_exact_options"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:inputType="numberSigned"
-            android:imeOptions="actionSearch"
-            android:textColor="#FFFFFF"/>
-    </com.google.android.material.textfield.TextInputLayout>
+            android:hint="@string/hint_search_value"
+            app:helperText="@string/helper_search_value"
+            app:endIconMode="clear_text">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_search_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="numberSigned"
+                android:imeOptions="actionSearch"
+                android:textColor="#FFFFFF"/>
+        </com.google.android.material.textfield.TextInputLayout>
 
-    <HorizontalScrollView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:scrollbars="none">
-
-        <com.google.android.material.chip.ChipGroup
-            android:id="@+id/chip_group_type"
-            android:layout_width="wrap_content"
+        <HorizontalScrollView
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:singleSelection="true"
-            app:selectionRequired="true">
+            android:layout_marginTop="8dp"
+            android:scrollbars="none">
 
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_type_dword"
-                style="@style/Widget.MaterialComponents.Chip.Choice"
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chip_group_type"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Dword"
-                android:checked="true"
-                android:textColor="@color/white"
-                app:chipBackgroundColor="@color/surface_card_grey"/>
+                app:singleSelection="true"
+                app:selectionRequired="true">
 
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_type_float"
-                style="@style/Widget.MaterialComponents.Chip.Choice"
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_type_dword"
+                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Dword"
+                    android:checked="true"
+                    android:textColor="@color/white"
+                    app:chipBackgroundColor="@color/surface_card_grey"/>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_type_float"
+                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Float"
+                    android:textColor="@color/white"
+                    app:chipBackgroundColor="@color/surface_card_grey"/>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_type_double"
+                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Double"
+                    android:textColor="@color/white"
+                    app:chipBackgroundColor="@color/surface_card_grey"/>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_type_byte"
+                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Byte"
+                    android:textColor="@color/white"
+                    app:chipBackgroundColor="@color/surface_card_grey"/>
+
+            </com.google.android.material.chip.ChipGroup>
+        </HorizontalScrollView>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Memory Ranges:"
+            android:textColor="@color/primary_hacker_green"
+            android:textSize="12sp"
+            android:layout_marginTop="8dp"/>
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none">
+
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Float"
-                android:textColor="@color/white"
-                app:chipBackgroundColor="@color/surface_card_grey"/>
+                android:orientation="horizontal">
 
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_type_double"
-                style="@style/Widget.MaterialComponents.Chip.Choice"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Double"
-                android:textColor="@color/white"
-                app:chipBackgroundColor="@color/surface_card_grey"/>
+                <CheckBox
+                    android:id="@+id/cb_region_anon"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Anon"
+                    android:textColor="#FFFFFF"
+                    android:checked="true"
+                    android:buttonTint="@color/primary_hacker_green"/>
 
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_type_byte"
-                style="@style/Widget.MaterialComponents.Chip.Choice"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Byte"
-                android:textColor="@color/white"
-                app:chipBackgroundColor="@color/surface_card_grey"/>
+                <CheckBox
+                    android:id="@+id/cb_region_c_heap"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="C++ Heap"
+                    android:textColor="#FFFFFF"
+                    android:checked="true"
+                    android:buttonTint="@color/primary_hacker_green"/>
 
-        </com.google.android.material.chip.ChipGroup>
-    </HorizontalScrollView>
+                <CheckBox
+                    android:id="@+id/cb_region_java_heap"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Java Heap"
+                    android:textColor="#FFFFFF"
+                    android:buttonTint="@color/primary_hacker_green"/>
 
-    <TextView
+                <CheckBox
+                    android:id="@+id/cb_region_stack"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Stack"
+                    android:textColor="#FFFFFF"
+                    android:buttonTint="@color/primary_hacker_green"/>
+            </LinearLayout>
+        </HorizontalScrollView>
+
+        <Button
+            android:id="@+id/btn_scan"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="New Scan"
+            android:backgroundTint="@color/primary_hacker_green"
+            android:textColor="#000000"
+            android:layout_marginTop="8dp"/>
+
+        <Button
+            android:id="@+id/btn_next_scan"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Next Scan"
+            android:backgroundTint="#FFFFFF"
+            android:textColor="#000000"
+            android:layout_marginTop="8dp"
+            android:visibility="gone"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/layout_fuzzy_options"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Memory Ranges:"
-        android:textColor="@color/primary_hacker_green"
-        android:textSize="12sp"
-        android:layout_marginTop="8dp"/>
+        android:orientation="vertical"
+        android:visibility="gone">
 
-    <HorizontalScrollView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:scrollbars="none">
+        <Button
+            android:id="@+id/btn_fuzzy_start"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Start Fuzzy Scan"
+            android:backgroundTint="@color/primary_hacker_green"
+            android:textColor="#000000"
+            android:layout_marginTop="8dp"/>
 
         <LinearLayout
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:weightSum="2"
+            android:layout_marginTop="8dp">
 
-            <CheckBox
-                android:id="@+id/cb_region_anon"
-                android:layout_width="wrap_content"
+            <Button
+                android:id="@+id/btn_fuzzy_changed"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:text="Anon"
-                android:textColor="#FFFFFF"
-                android:checked="true"
-                android:buttonTint="@color/primary_hacker_green"/>
+                android:layout_weight="1"
+                android:text="Changed"
+                android:textSize="12sp"
+                android:layout_marginEnd="4dp"/>
 
-            <CheckBox
-                android:id="@+id/cb_region_c_heap"
-                android:layout_width="wrap_content"
+            <Button
+                android:id="@+id/btn_fuzzy_unchanged"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:text="C++ Heap"
-                android:textColor="#FFFFFF"
-                android:checked="true"
-                android:buttonTint="@color/primary_hacker_green"/>
-
-            <CheckBox
-                android:id="@+id/cb_region_java_heap"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Java Heap"
-                android:textColor="#FFFFFF"
-                android:buttonTint="@color/primary_hacker_green"/>
-
-            <CheckBox
-                android:id="@+id/cb_region_stack"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Stack"
-                android:textColor="#FFFFFF"
-                android:buttonTint="@color/primary_hacker_green"/>
+                android:layout_weight="1"
+                android:text="Unchanged"
+                android:textSize="12sp"
+                android:layout_marginStart="4dp"/>
         </LinearLayout>
-    </HorizontalScrollView>
 
-    <Button
-        android:id="@+id/btn_scan"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="New Scan"
-        android:backgroundTint="@color/primary_hacker_green"
-        android:textColor="#000000"
-        android:layout_marginTop="8dp"/>
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:weightSum="2"
+            android:layout_marginTop="8dp">
 
-    <Button
-        android:id="@+id/btn_next_scan"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Next Scan"
-        android:backgroundTint="#FFFFFF"
-        android:textColor="#000000"
-        android:layout_marginTop="8dp"
-        android:visibility="gone"/>
+            <Button
+                android:id="@+id/btn_fuzzy_increased"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Increased"
+                android:textSize="12sp"
+                android:layout_marginEnd="4dp"/>
+
+            <Button
+                android:id="@+id/btn_fuzzy_decreased"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Decreased"
+                android:textSize="12sp"
+                android:layout_marginStart="4dp"/>
+        </LinearLayout>
+    </LinearLayout>
 
     <ProgressBar
         android:id="@+id/progress_scan"

@@ -1,6 +1,19 @@
 package com.techted89.gameex
 
 object NativeScanner {
+    const val FUZZY_CHANGED = 0
+    const val FUZZY_UNCHANGED = 1
+    const val FUZZY_INCREASED = 2
+    const val FUZZY_DECREASED = 3
+
+    const val TYPE_BYTE = 1
+    const val TYPE_WORD = 2
+    const val TYPE_DWORD = 4
+    const val TYPE_XOR = 8
+    const val TYPE_FLOAT = 16
+    const val TYPE_QWORD = 32
+    const val TYPE_DOUBLE = 64
+
     init {
         System.loadLibrary("native-scanner")
     }
@@ -32,7 +45,14 @@ external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
     /**
      * Starts a fuzzy scan by dumping current memory snapshot.
      */
-    external fun startFuzzyScan(pid: Int, dumpPath: String)
+    external fun startFuzzyScan(pid: Int)
+
+    /**
+     * Filters the search results using fuzzy logic.
+     * @param mode 0=CHANGED, 1=UNCHANGED, 2=INCREASED, 3=DECREASED
+     * @param type Data type to compare.
+     */
+    external fun filterFuzzy(pid: Int, mode: Int, type: Int): Int
 
     /**
      * Filters the current search results, keeping only those that match the new value.

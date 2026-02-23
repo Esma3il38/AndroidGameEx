@@ -270,8 +270,8 @@ class FloatingOverlayService : Service() {
                             // Reusing MemoryResultAdapter for simplicity since it just shows two texts
                             // In real app, create ModuleAdapter
                             val moduleResults = modules.map { MemoryResult(0, it) }
-                            val adapter = MemoryResultAdapter(moduleResults)
-                            rvModulesList.adapter = adapter
+                            val modulesAdapter = MemoryResultAdapter(moduleResults)
+                            rvModulesList.adapter = modulesAdapter
                         }
                     }
                 }
@@ -453,9 +453,8 @@ class FloatingOverlayService : Service() {
 
             serviceScope.launch(Dispatchers.IO) {
                 try {
-                    File(path).writeText(scriptContent)
                     // Write current script input to the .asm file before assembling
-                    java.io.File(path).writeText(scriptContent)
+                    File(path).writeText(scriptContent)
 
                     NativeScanner.assembleScript(path, outPath)
 

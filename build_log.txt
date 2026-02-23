@@ -1,0 +1,116 @@
+Downloading https://services.gradle.org/distributions/gradle-8.8-bin.zip
+.............10%.............20%.............30%.............40%.............50%.............60%..............70%.............80%.............90%.............100%
+Starting a Gradle Daemon (subsequent builds will be faster)
+
+> Configure project :app
+This version only understands SDK XML versions up to 3 but an SDK XML file of version 4 was encountered. This can happen if you use versions of Android Studio and the command-line tools that were released at different times.
+Checking the license for package NDK (Side by side) 25.1.8937393 in /opt/android-sdk/licenses
+License for package NDK (Side by side) 25.1.8937393 accepted.
+Preparing "Install NDK (Side by side) 25.1.8937393 v.25.1.8937393".
+"Install NDK (Side by side) 25.1.8937393 v.25.1.8937393" ready.
+Installing NDK (Side by side) 25.1.8937393 in /opt/android-sdk/ndk/25.1.8937393
+"Install NDK (Side by side) 25.1.8937393 v.25.1.8937393" complete.
+"Install NDK (Side by side) 25.1.8937393 v.25.1.8937393" finished.
+
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors
+> Task :app:checkDebugAarMetadata
+> Task :app:generateDebugResValues
+> Task :app:mapDebugSourceSetPaths
+> Task :app:generateDebugResources
+> Task :app:packageDebugResources
+> Task :app:mergeDebugResources
+> Task :app:createDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksDebug
+> Task :app:parseDebugLocalResources
+
+> Task :app:processDebugMainManifest
+/app/app/src/main/AndroidManifest.xml:11:9-41 Warning:
+	android:extractNativeLibs should not be specified in this source AndroidManifest.xml file. See https://d.android.com/guide/topics/manifest/application-element#extractNativeLibs for more information.
+The AGP Upgrade Assistant can remove the attribute from the AndroidManifest.xml file and update the build file accordingly. See https://d.android.com/studio/build/agp-upgrade-assistant for more information.
+
+> Task :app:processDebugManifest
+> Task :app:javaPreCompileDebug
+> Task :app:mergeDebugShaders
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:mergeDebugAssets
+> Task :app:compressDebugAssets
+> Task :app:desugarDebugFileDependencies
+> Task :app:checkDebugDuplicateClasses
+
+> Task :app:configureCMakeDebug[arm64-v8a]
+Checking the license for package CMake 3.22.1 in /opt/android-sdk/licenses
+License for package CMake 3.22.1 accepted.
+Preparing "Install CMake 3.22.1 v.3.22.1".
+"Install CMake 3.22.1 v.3.22.1" ready.
+Installing CMake 3.22.1 in /opt/android-sdk/cmake/3.22.1
+"Install CMake 3.22.1 v.3.22.1" complete.
+"Install CMake 3.22.1 v.3.22.1" finished.
+
+> Task :app:processDebugManifestForPackage
+> Task :app:mergeExtDexDebug
+> Task :app:mergeLibDexDebug
+> Task :app:processDebugResources
+> Task :app:buildCMakeDebug[arm64-v8a]
+> Task :app:configureCMakeDebug[armeabi-v7a]
+> Task :app:buildCMakeDebug[armeabi-v7a]
+> Task :app:configureCMakeDebug[x86]
+> Task :app:buildCMakeDebug[x86]
+> Task :app:configureCMakeDebug[x86_64]
+> Task :app:buildCMakeDebug[x86_64]
+> Task :app:mergeDebugJniLibFolders
+> Task :app:mergeDebugNativeLibs
+> Task :app:validateSigningDebug
+> Task :app:writeDebugAppMetadata
+> Task :app:writeDebugSigningConfigVersions
+> Task :app:stripDebugDebugSymbols
+
+> Task :app:compileDebugKotlin
+w: file:///app/app/src/main/java/com/techted89/gameex/FloatingOverlayService.kt:273:33 Name shadowed: adapter
+w: file:///app/app/src/main/java/com/techted89/gameex/FloatingOverlayService.kt:514:149 'TYPE_PHONE: Int' is deprecated. Deprecated in Java
+w: file:///app/app/src/main/java/com/techted89/gameex/ProcessSelectorActivity.kt:42:13 'startActivityForResult(Intent, Int): Unit' is deprecated. Deprecated in Java
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:41:36 Parameter 'type' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:41:47 Parameter 'encrypted' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:41:67 Parameter 'sign' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:41:78 Parameter 'memoryFrom' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:41:96 Parameter 'memoryTo' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:50:36 Parameter 'type' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:66:17 Parameter 'text' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:66:31 Parameter 'type' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:70:55 Parameter 'flags' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:74:32 Parameter 'fixLocale' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:86:23 Parameter 'maxOffset' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:86:39 Parameter 'memoryFrom' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:86:61 Parameter 'memoryTo' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:86:82 Parameter 'limit' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:98:15 Parameter 'text' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:98:29 Parameter 'fast' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:102:15 Parameter 'text' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:102:29 Parameter 'positive' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:102:54 Parameter 'negative' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:102:80 Parameter 'neutral' is never used
+w: file:///app/app/src/main/java/com/techted89/gameex/scripting/GameGuardianAPI.kt:119:20 Parameter 'visible' is never used
+
+> Task :app:compileDebugJavaWithJavac NO-SOURCE
+> Task :app:processDebugJavaRes
+> Task :app:dexBuilderDebug
+> Task :app:mergeDebugJavaResource
+> Task :app:mergeProjectDexDebug
+
+> Task :app:packageDebug
+PackagingOptions.jniLibs.useLegacyPackaging should be set to true because android:extractNativeLibs is set to "true" in AndroidManifest.xml.
+
+> Task :app:createDebugApkListingFileRedirect
+> Task :app:assembleDebug
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.8/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 4m 58s
+42 actionable tasks: 42 executed

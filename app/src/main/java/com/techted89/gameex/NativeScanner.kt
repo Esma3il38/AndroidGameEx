@@ -1,56 +1,52 @@
 package com.techted89.gameex
 
 object NativeScanner {
+    const val TYPE_BYTE = 1
+    const val TYPE_WORD = 2
+    const val TYPE_DWORD = 3
+    const val TYPE_XOR = 4
+    const val TYPE_QWORD = 5
+    const val TYPE_FLOAT = 6
+    const val TYPE_DOUBLE = 7
+
+    const val FUZZY_CHANGED = 0
+    const val FUZZY_UNCHANGED = 1
+    const val FUZZY_INCREASED = 2
+    const val FUZZY_DECREASED = 3
+
     init {
         System.loadLibrary("native-scanner")
     }
 
     /**
- * Read a sequence of bytes from the memory of a target process.
- *
- * @param pid The target process identifier (PID).
- * @param address The starting absolute memory address in the target process to read from.
- * @param size The number of bytes to read.
- * @return A byte array containing the bytes read; its length will be equal to `size` when the read succeeds.
- */
-external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
-
-    /**
- * Searches the target process's memory for occurrences of a 4-byte integer value.
- *
- * @param pid The target process ID.
- * @param value The 4-byte integer value to search for.
- * @return The number of matches found.
- */
-    external fun searchMemory(pid: Int, value: Int): Int
-
-    /**
-     * Searches memory using a query string (e.g., "100~200" for range, "100X8" for XOR).
-     */
-    external fun searchMemoryString(pid: Int, query: String): Int
-
-    /**
-     * Starts a fuzzy scan by dumping current memory snapshot.
-     */
-    external fun startFuzzyScan(pid: Int, dumpPath: String)
-
-    /**
-     * Filters the current search results, keeping only those that match the new value.
+     * Read a sequence of bytes from the memory of a target process.
      *
-     * @param pid The target process ID.
-     * @param value The new value to filter for.
-     * @return The number of remaining matches.
+     * @param pid The target process identifier (PID).
+     * @param address The starting absolute memory address in the target process to read from.
+     * @param size The number of bytes to read.
+     * @return A byte array containing the bytes read; its length will be equal to `size` when the read succeeds.
      */
-    external fun filterMemory(pid: Int, value: Int): Int
+    external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
 
     /**
-     * Filters the current search results using a query string.
-     *
-     * @param pid The target process ID.
-     * @param query The query string (e.g., "100~200").
-     * @return The number of remaining matches.
+     * Searches memory using a query string (e.g., "100~200" for range, "100X8" for XOR) and specified type.
      */
-    external fun filterMemoryString(pid: Int, query: String): Int
+    external fun searchMemory(pid: Int, query: String, type: Int): Int
+
+    /**
+     * Filters the current search results using a query string and specified type.
+     */
+    external fun filterMemory(pid: Int, query: String, type: Int): Int
+
+    /**
+     * Starts a fuzzy scan by capturing current memory snapshot.
+     */
+    external fun startFuzzyScan(pid: Int, type: Int)
+
+    /**
+     * Filters the fuzzy scan results.
+     */
+    external fun filterFuzzy(pid: Int, mode: Int, type: Int): Int
 
     /**
      * Retrieves a list of loaded modules (libraries) in the target process.

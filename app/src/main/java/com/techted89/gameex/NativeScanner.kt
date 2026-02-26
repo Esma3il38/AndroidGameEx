@@ -1,6 +1,10 @@
 package com.techted89.gameex
 
 object NativeScanner {
+    init {
+        System.loadLibrary("native-scanner")
+    }
+
     // Supported Data Types
     const val TYPE_BYTE = 1
     const val TYPE_WORD = 2
@@ -17,27 +21,23 @@ object NativeScanner {
     const val FUZZY_INCREASED = 2
     const val FUZZY_DECREASED = 3
 
-    init {
-        System.loadLibrary("native-scanner")
-    }
-
     /**
-     * Read a sequence of bytes from the memory of a target process.
-     *
-     * @param pid The target process identifier (PID).
-     * @param address The starting absolute memory address in the target process to read from.
-     * @param size The number of bytes to read.
-     * @return A byte array containing the bytes read; its length will be equal to `size` when the read succeeds.
-     */
+ * Read a sequence of bytes from the memory of a target process.
+ *
+ * @param pid The target process identifier (PID).
+ * @param address The starting absolute memory address in the target process to read from.
+ * @param size The number of bytes to read.
+ * @return A byte array containing the bytes read; its length will be equal to `size` when the read succeeds.
+ */
     external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
 
     /**
-     * Searches the target process's memory for occurrences of a 4-byte integer value.
-     *
-     * @param pid The target process ID.
-     * @param value The 4-byte integer value to search for.
-     * @return The number of matches found.
-     */
+ * Searches the target process's memory for occurrences of a 4-byte integer value.
+ *
+ * @param pid The target process ID.
+ * @param value The 4-byte integer value to search for.
+ * @return The number of matches found.
+ */
     external fun searchMemory(pid: Int, value: Int): Int
 
     /**

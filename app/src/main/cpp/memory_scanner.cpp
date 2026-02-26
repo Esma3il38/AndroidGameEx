@@ -21,7 +21,6 @@
 
 // Forward Declaration for JNI compatibility to resolve circular dependency
 extern "C" JNIEXPORT jint JNICALL Java_com_techted89_gameex_NativeScanner_searchMemoryString(JNIEnv* env, jobject thiz, jint pid, jstring queryString);
-extern "C" JNIEXPORT jint JNICALL Java_com_techted89_gameex_NativeScanner_filterMemoryString(JNIEnv* env, jobject thiz, jint pid, jstring queryString);
 
 // Define the structure of a memory region
 struct MemoryRegion {
@@ -32,7 +31,6 @@ struct MemoryRegion {
     bool isExecutable;
 };
 
-// Fuzzy Scan Snapshot Structure
 struct SnapshotRegion {
     uintptr_t startAddress;
     std::vector<uint8_t> data;
@@ -42,7 +40,7 @@ struct SnapshotRegion {
 std::vector<jlong> searchResults;
 std::mutex searchResultsMutex;
 
-// Global buffer for Fuzzy Scan Snapshots
+// Fuzzy Scan Snapshot Buffer
 std::vector<SnapshotRegion> fuzzySnapshots;
 std::mutex fuzzyMutex;
 
@@ -58,34 +56,56 @@ enum SearchType {
     ENCRYPTED_XOR
 };
 
+enum DataType {
+    TYPE_BYTE = 1,
+    TYPE_WORD = 2,
+    TYPE_DWORD = 4,
+    TYPE_QWORD = 8,
+    TYPE_FLOAT = 16,
+    TYPE_DOUBLE = 32,
+    TYPE_AUTO = 64,
+    TYPE_XOR = 128
+};
+
+enum FuzzyMode {
+    FUZZY_CHANGED = 0,
+    FUZZY_UNCHANGED = 1,
+    FUZZY_INCREASED = 2,
+    FUZZY_DECREASED = 3
+};
+
 struct SearchCondition {
     SearchType type = EXACT;
-    int value1 = 0;
-    int value2 = 0; // For range
+    DataType dataType = TYPE_DWORD;
+    // Store as doubles to accommodate all types (except large QWORDs which might lose precision, but sufficient for now)
+    // Alternatively, use a union, but parsing logic is simpler with double for now.
+    double value1 = 0;
+    double value2 = 0; // For range
     int xorKey = 0; // For encrypted
 };
 
-// Simple parser for "100~150", "100X8", "100"
-SearchCondition parseSearchQuery(const std::string& query) {
+// Simple parser for "100~150", "100X8", "100", "123.45"
+SearchCondition parseSearchQuery(const std::string& query, DataType forcedType) {
     SearchCondition cond;
+    cond.dataType = forcedType;
 
     // Check for Range (~)
     size_t tildePos = query.find('~');
     if (tildePos != std::string::npos) {
         cond.type = RANGE;
         try {
-            cond.value1 = std::stoi(query.substr(0, tildePos));
-            cond.value2 = std::stoi(query.substr(tildePos + 1));
+            cond.value1 = std::stod(query.substr(0, tildePos));
+            cond.value2 = std::stod(query.substr(tildePos + 1));
         } catch (...) { cond.type = EXACT; }
         return cond;
     }
 
-    // Check for XOR (X)
+    // Check for XOR (X) - Only for Integers usually
     size_t xPos = query.find('X');
     if (xPos != std::string::npos) {
         cond.type = ENCRYPTED_XOR;
         try {
-            cond.value1 = std::stoi(query.substr(0, xPos));
+            cond.value1 = std::stod(query.substr(0, xPos));
             cond.xorKey = std::stoi(query.substr(xPos + 1));
         } catch (...) { cond.type = EXACT; }
         return cond;
@@ -94,7 +114,7 @@ SearchCondition parseSearchQuery(const std::string& query) {
     // Default Exact
     cond.type = EXACT;
     try {
-        cond.value1 = std::stoi(query);
+        cond.value1 = std::stod(query);
     } catch (...) { cond.value1 = 0; }
     return cond;
 }
@@ -143,9 +163,14 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
 
         if (region.isReadable && region.isWritable) {
              std::string pathStr(path);
+             // Basic filtering: skip generic system libraries and devices
+             // Allow [anon], [heap], [stack]
              if (pathStr.find("/dev/") == std::string::npos &&
                  pathStr.find(".so") == std::string::npos &&
-                 pathStr.find(".ttf") == std::string::npos) {
+                 pathStr.find(".ttf") == std::string::npos &&
+                 pathStr.find(".apk") == std::string::npos &&
+                 pathStr.find(".dex") == std::string::npos &&
+                 pathStr.find(".jar") == std::string::npos) {
                 regions.push_back(region);
              }
         }
@@ -153,36 +178,28 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
     return regions;
 }
 
-// Helper to safely write memory using ptrace (handles alignment and read-modify-write)
+// Helper to safely write memory using ptrace
 bool ptraceWrite(int pid, uintptr_t addr, const void* data, size_t size) {
     const uint8_t* src = (const uint8_t*)data;
     uintptr_t currentAddr = addr;
     size_t bytesWritten = 0;
 
     while (bytesWritten < size) {
-        // Align address to word boundary (8 bytes for 64-bit)
         uintptr_t alignedAddr = currentAddr & ~(sizeof(long) - 1);
         size_t offset = currentAddr - alignedAddr;
 
         errno = 0;
         long word = ptrace(PTRACE_PEEKTEXT, pid, alignedAddr, nullptr);
-        if (errno != 0) {
-            __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "ptrace PEEK failed at %" PRIxPTR ": %s", alignedAddr, strerror(errno));
-            return false;
-        }
+        if (errno != 0) return false;
 
         uint8_t* wordBytes = (uint8_t*)&word;
         size_t chunk = std::min(sizeof(long) - offset, size - bytesWritten);
 
-        // Modify the bytes in the word
         for (size_t i = 0; i < chunk; i++) {
             wordBytes[offset + i] = src[bytesWritten + i];
         }
 
-        if (ptrace(PTRACE_POKETEXT, pid, alignedAddr, (void*)word) == -1) {
-            __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "ptrace POKE failed at %" PRIxPTR ": %s", alignedAddr, strerror(errno));
-            return false;
-        }
+        if (ptrace(PTRACE_POKETEXT, pid, alignedAddr, (void*)word) == -1) return false;
 
         currentAddr += chunk;
         bytesWritten += chunk;
@@ -190,7 +207,7 @@ bool ptraceWrite(int pid, uintptr_t addr, const void* data, size_t size) {
     return true;
 }
 
-// Helper to safely read memory using ptrace (for backup)
+// Helper to safely read memory using ptrace
 bool ptraceRead(int pid, uintptr_t addr, void* dest, size_t size) {
     uint8_t* out = (uint8_t*)dest;
     uintptr_t currentAddr = addr;
@@ -202,9 +219,7 @@ bool ptraceRead(int pid, uintptr_t addr, void* dest, size_t size) {
 
         errno = 0;
         long word = ptrace(PTRACE_PEEKTEXT, pid, alignedAddr, nullptr);
-        if (errno != 0) {
-            return false;
-        }
+        if (errno != 0) return false;
 
         uint8_t* wordBytes = (uint8_t*)&word;
         size_t chunk = std::min(sizeof(long) - offset, size - bytesRead);
@@ -219,156 +234,47 @@ bool ptraceRead(int pid, uintptr_t addr, void* dest, size_t size) {
     return true;
 }
 
-extern "C"
-JNIEXPORT void JNICALL
-Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
-        JNIEnv* env,
-        jobject,
-        jint pid) {
-    // 1. Prepare local snapshot
-    std::vector<SnapshotRegion> localSnapshots;
-    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
-    const size_t CHUNK_SIZE = 65536; // 64KB chunks as per memory note
-
-    for (const auto& region : regions) {
-        uintptr_t currentAddr = region.startAddress;
-        while (currentAddr < region.endAddress) {
-            size_t readSize = std::min((size_t)(region.endAddress - currentAddr), CHUNK_SIZE);
-            std::vector<uint8_t> buffer(readSize);
-
-            struct iovec local_iov = {buffer.data(), readSize};
-            struct iovec remote_iov = {(void*)currentAddr, readSize};
-
-            ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
-
-            if (bytesRead > 0) {
-                // Resize if partial read
-                if ((size_t)bytesRead < readSize) {
-                    buffer.resize(bytesRead);
-                }
-                localSnapshots.push_back({currentAddr, std::move(buffer)});
-            }
-            currentAddr += readSize;
-        }
+// Template function to check value match
+template <typename T>
+bool checkValue(T val, const SearchCondition& cond) {
+    switch (cond.type) {
+        case EXACT:
+            // For floats, use epsilon comparison? For now, strict equality
+            if (std::is_floating_point<T>::value)
+                return std::abs(val - (T)cond.value1) < 0.0001;
+            return val == (T)cond.value1;
+        case RANGE:
+            return val >= (T)cond.value1 && val <= (T)cond.value2;
+        case ENCRYPTED_XOR:
+            // Only valid for integral types
+            if (std::is_integral<T>::value)
+                 return ((long long)val ^ cond.xorKey) == (long long)cond.value1;
+            return false;
+        default:
+            return false;
     }
-
-    // 2. Sort local snapshots (memory note requirement)
-    std::sort(localSnapshots.begin(), localSnapshots.end(),
-        [](const SnapshotRegion& a, const SnapshotRegion& b) {
-            return a.startAddress < b.startAddress;
-        });
-
-    // 3. Update global state with lock
-    {
-        std::lock_guard<std::mutex> lock(fuzzyMutex);
-        fuzzySnapshots = std::move(localSnapshots);
-    }
-
-    // Clear previous search results on new fuzzy scan
-    {
-        std::lock_guard<std::mutex> lock(searchResultsMutex);
-        searchResults.clear();
-    }
-
-    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Baseline Created. Regions: %zu", fuzzySnapshots.size());
 }
 
-extern "C"
-JNIEXPORT jint JNICALL
-Java_com_techted89_gameex_NativeScanner_filterFuzzy(
-        JNIEnv* env,
-        jobject,
-        jint pid,
-        jint mode) {
-    std::vector<jlong> localResults;
-
-    // 0=CHANGED, 1=UNCHANGED, 2=INCREASED, 3=DECREASED
-
-    std::lock_guard<std::mutex> fuzzyLock(fuzzyMutex);
-
-    int matchCount = 0;
-
-    for (const auto& snapshot : fuzzySnapshots) {
-        size_t size = snapshot.data.size();
-        if (size == 0) continue;
-
-        std::vector<uint8_t> currentData(size);
-        struct iovec local_iov = {currentData.data(), size};
-        struct iovec remote_iov = {(void*)snapshot.startAddress, size};
-
-        ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
-
-        if (bytesRead > 0) {
-            size_t limit = (size_t)bytesRead;
-            // Iterate by 4 bytes (assuming int alignment for fuzzy value scanning)
-            for (size_t i = 0; i + 4 <= limit; i += 4) {
-                int oldVal;
-                int newVal;
-
-                std::memcpy(&oldVal, &snapshot.data[i], sizeof(int));
-                std::memcpy(&newVal, &currentData[i], sizeof(int));
-
-                bool match = false;
-                switch (mode) {
-                    case 0: // CHANGED
-                        match = (newVal != oldVal);
-                        break;
-                    case 1: // UNCHANGED
-                        match = (newVal == oldVal);
-                        break;
-                    case 2: // INCREASED
-                        match = (newVal > oldVal);
-                        break;
-                    case 3: // DECREASED
-                        match = (newVal < oldVal);
-                        break;
-                }
-
-                if (match) {
-                    localResults.push_back((jlong)(snapshot.startAddress + i));
-                    matchCount++;
-                    if (matchCount >= 100000) goto fuzzy_complete;
-                }
-            }
-        }
-    }
-
-fuzzy_complete:
-    {
-        std::lock_guard<std::mutex> lock(searchResultsMutex);
-        searchResults = std::move(localResults);
-    }
-
-    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Filter Complete. Found: %d", matchCount);
-    return matchCount;
-}
-
-extern "C"
-JNIEXPORT jint JNICALL
-Java_com_techted89_gameex_NativeScanner_searchMemoryString(
-        JNIEnv* env,
-        jobject /* this */,
-        jint pid,
-        jstring queryString) {
-    if (queryString == nullptr) {
-        return 0;
-    }
-
-    const char* queryCStr = env->GetStringUTFChars(queryString, nullptr);
-    if (queryCStr == nullptr) {
-        return 0;
-    }
-    std::string query(queryCStr);
-    env->ReleaseStringUTFChars(queryString, queryCStr);
-
-    SearchCondition cond = parseSearchQuery(query);
-
-    std::vector<jlong> localResults;
+// Core search implementation
+int performSearch(int pid, const SearchCondition& cond, std::vector<jlong>& results, bool append = false) {
     std::vector<MemoryRegion> regions = getMemoryRegions(pid);
-
     const size_t CHUNK_SIZE = 4096;
     std::vector<uint8_t> buffer(CHUNK_SIZE);
     int matchCount = 0;
+    if (!append) results.clear();
+
+    size_t typeSize = 4;
+    size_t alignment = 4;
+
+    switch (cond.dataType) {
+        case TYPE_BYTE: typeSize = 1; alignment = 1; break;
+        case TYPE_WORD: typeSize = 2; alignment = 2; break;
+        case TYPE_DWORD: typeSize = 4; alignment = 4; break;
+        case TYPE_QWORD: typeSize = 8; alignment = 8; break;
+        case TYPE_FLOAT: typeSize = 4; alignment = 4; break;
+        case TYPE_DOUBLE: typeSize = 8; alignment = 8; break;
+        default: typeSize = 4; alignment = 4; break;
+    }
 
     for (const auto& region : regions) {
         uintptr_t currentAddr = region.startAddress;
@@ -381,31 +287,42 @@ Java_com_techted89_gameex_NativeScanner_searchMemoryString(
 
             ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
 
-            if (bytesRead >= 4) {
+            if (bytesRead >= (ssize_t)typeSize) {
                 size_t limit = (size_t)bytesRead;
-                for (size_t i = 0; i + 4 <= limit; i += 4) {
-                    int val;
-                    std::memcpy(&val, &buffer[i], sizeof(int));
-
+                for (size_t i = 0; i + typeSize <= limit; i += alignment) {
                     bool match = false;
-                    switch (cond.type) {
-                        case EXACT:
-                            match = (val == cond.value1);
-                            break;
-                        case RANGE:
-                            match = (val >= cond.value1 && val <= cond.value2);
-                            break;
-                        case ENCRYPTED_XOR:
-                            match = ((val ^ cond.xorKey) == cond.value1);
-                            break;
-                        default:
-                            break;
+                    switch (cond.dataType) {
+                        case TYPE_BYTE: {
+                            int8_t val = (int8_t)buffer[i];
+                            match = checkValue(val, cond);
+                        } break;
+                        case TYPE_WORD: {
+                            int16_t val; std::memcpy(&val, &buffer[i], 2);
+                            match = checkValue(val, cond);
+                        } break;
+                        case TYPE_DWORD: {
+                            int32_t val; std::memcpy(&val, &buffer[i], 4);
+                            match = checkValue(val, cond);
+                        } break;
+                        case TYPE_QWORD: {
+                            int64_t val; std::memcpy(&val, &buffer[i], 8);
+                            match = checkValue(val, cond);
+                        } break;
+                        case TYPE_FLOAT: {
+                            float val; std::memcpy(&val, &buffer[i], 4);
+                            match = checkValue(val, cond);
+                        } break;
+                        case TYPE_DOUBLE: {
+                            double val; std::memcpy(&val, &buffer[i], 8);
+                            match = checkValue(val, cond);
+                        } break;
+                        default: break;
                     }
 
                     if (match) {
-                        localResults.push_back((jlong)(currentAddr + i));
+                        results.push_back((jlong)(currentAddr + i));
                         matchCount++;
-                        if (matchCount >= 100000) goto search_complete;
+                        if (matchCount >= 100000 && !append) goto search_complete;
                     }
                 }
             }
@@ -414,10 +331,6 @@ Java_com_techted89_gameex_NativeScanner_searchMemoryString(
     }
 
 search_complete:
-    {
-        std::lock_guard<std::mutex> lock(searchResultsMutex);
-        searchResults = std::move(localResults);
-    }
     return matchCount;
 }
 
@@ -429,9 +342,45 @@ Java_com_techted89_gameex_NativeScanner_searchMemory(
         jint pid,
         jstring valueStr,
         jint type) {
-    // Basic delegation to string search for now, to support legacy and new calls
-    // Real implementation would handle types
-    return Java_com_techted89_gameex_NativeScanner_searchMemoryString(env, thiz, pid, valueStr);
+    if (valueStr == nullptr) return 0;
+    const char* str = env->GetStringUTFChars(valueStr, nullptr);
+    std::string query(str);
+    env->ReleaseStringUTFChars(valueStr, str);
+
+    SearchCondition cond = parseSearchQuery(query, (DataType)type);
+
+    std::vector<jlong> localResults;
+    int count = performSearch(pid, cond, localResults);
+
+    {
+        std::lock_guard<std::mutex> lock(searchResultsMutex);
+        searchResults = std::move(localResults);
+    }
+    return count;
+}
+
+// Legacy support: defaults to DWORD
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_searchMemoryString(
+        JNIEnv* env,
+        jobject thiz,
+        jint pid,
+        jstring queryString) {
+    return Java_com_techted89_gameex_NativeScanner_searchMemory(env, thiz, pid, queryString, TYPE_DWORD);
+}
+
+// Legacy support: searchMemory(int)
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_searchMemory__II(
+        JNIEnv* env,
+        jobject thiz,
+        jint pid,
+        jint valueToFind) {
+    std::string query = std::to_string(valueToFind);
+    jstring queryString = env->NewStringUTF(query.c_str());
+    return Java_com_techted89_gameex_NativeScanner_searchMemory(env, thiz, pid, queryString, TYPE_DWORD);
 }
 
 extern "C"
@@ -442,13 +391,233 @@ Java_com_techted89_gameex_NativeScanner_filterMemory(
         jint pid,
         jstring valueStr,
         jint type) {
-    // Basic delegation
-    return Java_com_techted89_gameex_NativeScanner_filterMemoryString(env, thiz, pid, valueStr);
+    if (valueStr == nullptr) return 0;
+    const char* str = env->GetStringUTFChars(valueStr, nullptr);
+    std::string query(str);
+    env->ReleaseStringUTFChars(valueStr, str);
+
+    SearchCondition cond = parseSearchQuery(query, (DataType)type);
+
+    std::lock_guard<std::mutex> lock(searchResultsMutex);
+
+    size_t typeSize = 4;
+    switch (cond.dataType) {
+        case TYPE_BYTE: typeSize = 1; break;
+        case TYPE_WORD: typeSize = 2; break;
+        case TYPE_DWORD: typeSize = 4; break;
+        case TYPE_QWORD: typeSize = 8; break;
+        case TYPE_FLOAT: typeSize = 4; break;
+        case TYPE_DOUBLE: typeSize = 8; break;
+        default: typeSize = 4; break;
+    }
+
+    auto it = std::remove_if(searchResults.begin(), searchResults.end(), [&](jlong addr) {
+        std::vector<uint8_t> buffer(typeSize);
+        struct iovec local_iov = {buffer.data(), typeSize};
+        struct iovec remote_iov = {(void*)(uintptr_t)addr, typeSize};
+
+        ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+
+        if (bytesRead != (ssize_t)typeSize) {
+            return true; // Remove if read failed
+        }
+
+        bool match = false;
+        switch (cond.dataType) {
+            case TYPE_BYTE: {
+                int8_t val = (int8_t)buffer[0];
+                match = checkValue(val, cond);
+            } break;
+            case TYPE_WORD: {
+                int16_t val; std::memcpy(&val, buffer.data(), 2);
+                match = checkValue(val, cond);
+            } break;
+            case TYPE_DWORD: {
+                int32_t val; std::memcpy(&val, buffer.data(), 4);
+                match = checkValue(val, cond);
+            } break;
+            case TYPE_QWORD: {
+                int64_t val; std::memcpy(&val, buffer.data(), 8);
+                match = checkValue(val, cond);
+            } break;
+            case TYPE_FLOAT: {
+                float val; std::memcpy(&val, buffer.data(), 4);
+                match = checkValue(val, cond);
+            } break;
+            case TYPE_DOUBLE: {
+                double val; std::memcpy(&val, buffer.data(), 8);
+                match = checkValue(val, cond);
+            } break;
+            default: break;
+        }
+        return !match;
+    });
+
+    searchResults.erase(it, searchResults.end());
+    return (jint)searchResults.size();
 }
 
-extern "C" /**
- * @brief Install a hook at the target address.
- */
+// Legacy filter support
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_filterMemoryString(
+        JNIEnv* env,
+        jobject thiz,
+        jint pid,
+        jstring queryString) {
+    return Java_com_techted89_gameex_NativeScanner_filterMemory(env, thiz, pid, queryString, TYPE_DWORD);
+}
+
+// --- Fuzzy Scan Logic ---
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
+        JNIEnv* env,
+        jobject,
+        jint pid) {
+
+    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
+    const size_t CHUNK_SIZE = 64 * 1024; // 64KB chunks for snapshots
+    std::vector<uint8_t> buffer(CHUNK_SIZE);
+
+    std::vector<SnapshotRegion> localSnapshots;
+
+    for (const auto& region : regions) {
+        uintptr_t current = region.startAddress;
+        while (current < region.endAddress) {
+            size_t readSize = std::min((size_t)(region.endAddress - current), CHUNK_SIZE);
+            struct iovec local = {buffer.data(), readSize};
+            struct iovec remote = {(void*)current, readSize};
+
+            ssize_t bytes = process_vm_readv(pid, &local, 1, &remote, 1, 0);
+            if (bytes > 0) {
+                SnapshotRegion snap;
+                snap.startAddress = current;
+                snap.data.assign(buffer.begin(), buffer.begin() + bytes);
+                localSnapshots.push_back(snap);
+            }
+            current += readSize;
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(fuzzyMutex);
+        fuzzySnapshots = std::move(localSnapshots);
+        // Explicit sort to enable binary search/lookups if needed later, though sequential access is typical
+        std::sort(fuzzySnapshots.begin(), fuzzySnapshots.end(), [](const SnapshotRegion& a, const SnapshotRegion& b){
+            return a.startAddress < b.startAddress;
+        });
+    }
+
+    // Clear previous results as we are starting a new fuzzy scan
+    {
+        std::lock_guard<std::mutex> lock(searchResultsMutex);
+        searchResults.clear();
+        // Optimistically add ALL addresses? No, that's too many.
+        // We wait for the first filter step (CHANGED/UNCHANGED) to populate searchResults.
+    }
+
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Started. Snapshot size: %zu blocks", fuzzySnapshots.size());
+}
+
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_filterFuzzy(
+        JNIEnv* env,
+        jobject,
+        jint pid,
+        jint mode) {
+
+    std::lock_guard<std::mutex> fuzzyLock(fuzzyMutex);
+    std::lock_guard<std::mutex> resultsLock(searchResultsMutex);
+
+    std::vector<jlong> newResults;
+    const size_t ALIGNMENT = 4; // Assume DWORD/Float alignment for fuzzy scan default
+
+    // If searchResults is empty, we scan the entire snapshot (First Filter Step)
+    bool firstFilter = searchResults.empty();
+
+    if (firstFilter) {
+        for (const auto& snap : fuzzySnapshots) {
+            size_t size = snap.data.size();
+            std::vector<uint8_t> currentMem(size);
+            struct iovec local = {currentMem.data(), size};
+            struct iovec remote = {(void*)snap.startAddress, size};
+
+            ssize_t bytes = process_vm_readv(pid, &local, 1, &remote, 1, 0);
+            if (bytes != (ssize_t)size) continue;
+
+            for (size_t i = 0; i + 4 <= size; i += ALIGNMENT) {
+                int oldVal, newVal;
+                memcpy(&oldVal, &snap.data[i], 4);
+                memcpy(&newVal, &currentMem[i], 4);
+
+                bool match = false;
+                switch (mode) {
+                    case FUZZY_CHANGED: match = (oldVal != newVal); break;
+                    case FUZZY_UNCHANGED: match = (oldVal == newVal); break;
+                    case FUZZY_INCREASED: match = (newVal > oldVal); break;
+                    case FUZZY_DECREASED: match = (newVal < oldVal); break;
+                }
+
+                if (match) {
+                    newResults.push_back((jlong)(snap.startAddress + i));
+                    if (newResults.size() >= 100000) goto finish_fuzzy;
+                }
+            }
+        }
+    } else {
+        // Refine existing results
+        for (jlong addr : searchResults) {
+            // Find corresponding snapshot block
+            // Simple linear search or intelligent lookup.
+            // Given sorted snapshots, we can binary search.
+            auto it = std::lower_bound(fuzzySnapshots.begin(), fuzzySnapshots.end(), addr,
+                [](const SnapshotRegion& region, jlong address) {
+                    return region.startAddress + region.data.size() <= (uintptr_t)address;
+                });
+
+            if (it != fuzzySnapshots.end() && addr >= (jlong)it->startAddress && addr < (jlong)(it->startAddress + it->data.size())) {
+                size_t offset = addr - it->startAddress;
+                int oldVal;
+                memcpy(&oldVal, &it->data[offset], 4);
+
+                int newVal;
+                struct iovec local = {&newVal, 4};
+                struct iovec remote = {(void*)addr, 4};
+                if (process_vm_readv(pid, &local, 1, &remote, 1, 0) == 4) {
+                    bool match = false;
+                    switch (mode) {
+                        case FUZZY_CHANGED: match = (oldVal != newVal); break;
+                        case FUZZY_UNCHANGED: match = (oldVal == newVal); break;
+                        case FUZZY_INCREASED: match = (newVal > oldVal); break;
+                        case FUZZY_DECREASED: match = (newVal < oldVal); break;
+                    }
+                    if (match) newResults.push_back(addr);
+                }
+            }
+        }
+    }
+
+finish_fuzzy:
+    searchResults = std::move(newResults);
+
+    // Update snapshots for NEXT comparison?
+    // Usually fuzzy search compares against "Last Scan".
+    // So we should update fuzzySnapshots with current values for the kept addresses.
+    // However, updating entire blocks is heavy.
+    // GameGuardian strategy: "Changed since last scan" vs "Changed since start".
+    // For simplicity here, we compare against INITIAL snapshot.
+    // To support "Changed since last", we would need to update the snapshot.
+
+    return (jint)searchResults.size();
+}
+
+
+// --- Keep Existing Hooks/Dump/Utils ---
+
+extern "C"
 JNIEXPORT jboolean JNICALL
 Java_com_techted89_gameex_NativeScanner_installHook(
         JNIEnv* env,
@@ -458,10 +627,6 @@ Java_com_techted89_gameex_NativeScanner_installHook(
         jlong replacementAddress) {
     if (targetAddress == 0 || replacementAddress == 0) return JNI_FALSE;
 
-    // ARM64 Absolute Jump Trampoline (16 bytes)
-    // LDR X16, #8 (PC+8) -> Load the address at PC+8 into X16
-    // BR X16             -> Branch to X16
-    // [64-bit Address]
     uint32_t trampolineCode[] = {
         0x58000050, // LDR X16, #8
         0xD61F0200  // BR X16
@@ -471,16 +636,11 @@ Java_com_techted89_gameex_NativeScanner_installHook(
     memcpy(trampoline.data(), trampolineCode, 8);
     memcpy(trampoline.data() + 8, &replacementAddress, 8);
 
-    // Check for Self-Patching
     if (pid == getpid()) {
         long pageSize = sysconf(_SC_PAGESIZE);
         void* pageStart = (void*)(targetAddress & ~(pageSize - 1));
-        if (mprotect(pageStart, pageSize, PROT_READ | PROT_WRITE | PROT_EXEC) < 0) {
-             __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "mprotect failed: %s", strerror(errno));
-             return JNI_FALSE;
-        }
+        if (mprotect(pageStart, pageSize, PROT_READ | PROT_WRITE | PROT_EXEC) < 0) return JNI_FALSE;
 
-        // Backup original bytes for self-patching
         std::vector<uint8_t> backup(16);
         memcpy(backup.data(), (void*)targetAddress, 16);
         {
@@ -493,32 +653,22 @@ Java_com_techted89_gameex_NativeScanner_installHook(
         return JNI_TRUE;
     }
 
-    // External Process: Attach to process to freeze it and enable ptrace access
-    if (ptrace(PTRACE_ATTACH, pid, nullptr, nullptr) == -1) {
-        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Failed to attach: %s", strerror(errno));
-        return JNI_FALSE;
-    }
+    if (ptrace(PTRACE_ATTACH, pid, nullptr, nullptr) == -1) return JNI_FALSE;
     waitpid(pid, nullptr, 0);
 
-    // 2. Backup original bytes
     std::vector<uint8_t> backup(16);
     if (!ptraceRead(pid, (uintptr_t)targetAddress, backup.data(), 16)) {
         ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
         return JNI_FALSE;
     }
 
-    // Save backup
     {
         std::lock_guard<std::mutex> lock(originalBytesMutex);
         originalBytesMap[targetAddress] = backup;
     }
 
-    // 3. Write Trampoline
     bool success = ptraceWrite(pid, (uintptr_t)targetAddress, trampoline.data(), 16);
-
-    // 4. Detach
     ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
-
     return success ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -562,6 +712,7 @@ Java_com_techted89_gameex_NativeScanner_removeHook(
     return success ? JNI_TRUE : JNI_FALSE;
 }
 
+// Restore dumpMemoryInternal helper
 bool dumpMemoryInternal(int pid, long from, long to, const std::string& dumpDir) {
     std::vector<MemoryRegion> regions = getMemoryRegions(pid);
     const size_t CHUNK_SIZE = 4096;
@@ -624,6 +775,8 @@ Java_com_techted89_gameex_NativeScanner_enableStealthMode(JNIEnv*, jobject) {
     __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Stealth Mode: Activated");
 }
 
+// Java_com_techted89_gameex_NativeScanner_startFuzzyScan moved to top with implementation
+
 extern "C"
 JNIEXPORT jlongArray JNICALL
 Java_com_techted89_gameex_NativeScanner_getResults(JNIEnv* env, jobject, jint limit) {
@@ -647,56 +800,6 @@ Java_com_techted89_gameex_NativeScanner_readMemory(
     jbyteArray result = env->NewByteArray(bytes);
     env->SetByteArrayRegion(result, 0, bytes, (jbyte*)buffer.data());
     return result;
-}
-
-extern "C"
-JNIEXPORT jint JNICALL
-Java_com_techted89_gameex_NativeScanner_filterMemoryString(
-        JNIEnv* env,
-        jobject /* this */,
-        jint pid,
-        jstring queryString) {
-    if (queryString == nullptr) return 0;
-    const char* queryCStr = env->GetStringUTFChars(queryString, nullptr);
-    if (queryCStr == nullptr) return 0;
-    std::string query(queryCStr);
-    env->ReleaseStringUTFChars(queryString, queryCStr);
-
-    SearchCondition cond = parseSearchQuery(query);
-    std::lock_guard<std::mutex> lock(searchResultsMutex);
-
-    auto it = std::remove_if(searchResults.begin(), searchResults.end(), [&](jlong addr) {
-        int val = 0;
-        struct iovec local_iov = {&val, sizeof(int)};
-        struct iovec remote_iov = {(void*)(uintptr_t)addr, sizeof(int)};
-
-        ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
-
-        if (bytesRead != sizeof(int)) {
-            return true;
-        }
-
-        bool match = false;
-        switch (cond.type) {
-            case EXACT:
-                match = (val == cond.value1);
-                break;
-            case RANGE:
-                match = (val >= cond.value1 && val <= cond.value2);
-                break;
-            case ENCRYPTED_XOR:
-                match = ((val ^ cond.xorKey) == cond.value1);
-                break;
-            default:
-                break;
-        }
-        return !match; // Remove if NOT match
-    });
-
-    searchResults.erase(it, searchResults.end());
-
-    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Filter String Complete. Remaining: %zu", searchResults.size());
-    return (jint)searchResults.size();
 }
 
 extern "C"

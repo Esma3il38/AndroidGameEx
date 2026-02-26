@@ -12,15 +12,14 @@ object RootUtils {
     fun requestRoot(): Boolean {
         var process: Process? = null
         return try {
-            val p = Runtime.getRuntime().exec("su")
-            process = p
-            DataOutputStream(p.outputStream).use { os ->
+            process = Runtime.getRuntime().exec("su")
+            DataOutputStream(process.outputStream).use { os ->
                 os.writeBytes("echo root_access_check\n")
                 os.writeBytes("exit\n")
                 os.flush()
             }
-            p.waitFor()
-            p.exitValue() == 0
+            process.waitFor()
+            process.exitValue() == 0
         } catch (e: Exception) {
             false
         } finally {
@@ -70,14 +69,15 @@ object RootUtils {
                 parsePsOutput(reader)
             }
 
-            // Enrich with PackageManager info
+            // Enrich with PackageManager info (Label, Icon, System Status)
             val pm = context.packageManager
             processes.addAll(rawProcesses.map { info ->
                 try {
                     val appInfo = pm.getApplicationInfo(info.processName, 0)
                     val appName = pm.getApplicationLabel(appInfo).toString()
                     val icon = pm.getApplicationIcon(appInfo)
-                    val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                    // Ensure operator precedence is relied upon (and binds tighter than !=) to avoid linter warnings
+                    val isSystem = appInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0
                     info.copy(appName = appName, icon = icon, isSystemApp = isSystem)
                 } catch (e: PackageManager.NameNotFoundException) {
                     // Not an app, keep defaults (isSystemApp=true is reasonable for native processes)

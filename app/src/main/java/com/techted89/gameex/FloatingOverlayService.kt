@@ -13,6 +13,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.Toast
+import android.widget.TextView
 import android.view.inputmethod.EditorInfo
 import androidx.core.app.NotificationCompat
 import kotlin.math.abs
@@ -42,12 +43,14 @@ class FloatingOverlayService : Service() {
     private lateinit var dashboardParams: WindowManager.LayoutParams
 
     private var targetPid: Int = -1
+    private var targetAppName: String = "Unknown"
     private var isDashboardVisible = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         targetPid = intent?.getIntExtra("PID", -1) ?: -1
+        targetAppName = intent?.getStringExtra("APP_NAME") ?: "Unknown"
         GameGuardianAPI.setTargetPid(targetPid)
 
         createNotificationChannel()
@@ -59,6 +62,11 @@ class FloatingOverlayService : Service() {
             .setSmallIcon(R.mipmap.ic_launcher)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build())
+
+        // If the view is already created, update the info
+        if (::dashboardView.isInitialized) {
+            updateTargetInfo()
+        }
 
         return START_NOT_STICKY
     }
@@ -372,37 +380,40 @@ class FloatingOverlayService : Service() {
                 return
             }
 
-            // Get selected type (Mock logic)
             val selectedType = when (chipGroupType.checkedChipId) {
-                R.id.chip_type_float -> "Float"
-                R.id.chip_type_double -> "Double"
-                R.id.chip_type_byte -> "Byte"
-                else -> "Dword"
+                R.id.chip_type_float -> NativeScanner.TYPE_FLOAT
+                R.id.chip_type_double -> NativeScanner.TYPE_DOUBLE
+                R.id.chip_type_byte -> NativeScanner.TYPE_BYTE
+                else -> NativeScanner.TYPE_DWORD
             }
 
             Toast.makeText(this, "Scanning $selectedType...", Toast.LENGTH_SHORT).show()
 
-            // Show Loading
             progressScan.visibility = View.VISIBLE
             btnScan.isEnabled = false
             btnNextScan.isEnabled = false
 
-            // Execute Real Async Scan
             serviceScope.launch(Dispatchers.IO) {
                 var scanError: String? = null
                 val results = try {
                     if (isNext) {
-                        NativeScanner.filterMemoryString(targetPid, valueStr)
+                        NativeScanner.filterMemory(targetPid, valueStr, selectedType)
                     } else {
-                        NativeScanner.searchMemoryString(targetPid, valueStr)
+                        NativeScanner.searchMemory(targetPid, valueStr, selectedType)
                     }
 
                     val addresses = NativeScanner.getResults(100)
+                    val readSize = when(selectedType) {
+                        NativeScanner.TYPE_DOUBLE, NativeScanner.TYPE_QWORD -> 8
+                        NativeScanner.TYPE_BYTE -> 1
+                        NativeScanner.TYPE_WORD -> 2
+                        else -> 4
+                    }
 
                     addresses.map { addr ->
-                        val bytes = NativeScanner.readMemory(targetPid, addr, 4)
+                        val bytes = NativeScanner.readMemory(targetPid, addr, readSize)
                         val hexVal = bytes.joinToString("") { "%02X".format(it) }
-                        MemoryResult(addr, "$hexVal ($valueStr)")
+                        MemoryResult(addr, "$hexVal")
                     }
                 } catch (e: Exception) {
                     scanError = e.message
@@ -410,27 +421,25 @@ class FloatingOverlayService : Service() {
                 }
 
                 withContext(Dispatchers.Main) {
-                    if (scanError != null) {
-                        Toast.makeText(this@FloatingOverlayService, "Scan failed: $scanError", Toast.LENGTH_SHORT).show()
-                    }
+                    if (scanError != null) Toast.makeText(this@FloatingOverlayService, "Error: $scanError", Toast.LENGTH_SHORT).show()
                     adapter.updateData(results)
 
-                    // Update UI based on results
                     progressScan.visibility = View.GONE
                     btnScan.isEnabled = true
                     btnNextScan.isEnabled = true
 
-                    // Switch to results tab automatically
                     switchTab("RESULTS")
+
+                    if (results.isNotEmpty()) {
+                        btnNextScan.visibility = View.VISIBLE
+                    }
 
                     if (results.isEmpty()) {
                         layoutEmptyState.visibility = View.VISIBLE
                         rvResults.visibility = View.GONE
-                        btnNextScan.visibility = View.GONE
                     } else {
                         layoutEmptyState.visibility = View.GONE
                         rvResults.visibility = View.VISIBLE
-                        btnNextScan.visibility = View.VISIBLE
                     }
                 }
             }
@@ -563,26 +572,24 @@ class FloatingOverlayService : Service() {
         }
     }
 
+    private fun updateTargetInfo() {
+        if (!::dashboardView.isInitialized) return
+        val tvInfo = dashboardView.findViewById<TextView>(R.id.tv_target_info)
+        tvInfo.text = if (targetPid != -1) "Target: $targetAppName (PID: $targetPid)" else "Target: None"
+    }
+
     private fun showDashboard() {
         if (isDashboardVisible) return
-
-        // Remove Icon, Add Dashboard
+        updateTargetInfo()
         windowManager.removeView(iconView)
-
-        // Important: Dashboard must be Focusable for EditText to work
-        // We do NOT add FLAG_NOT_FOCUSABLE here
         windowManager.addView(dashboardView, dashboardParams)
-
         isDashboardVisible = true
     }
 
     private fun showIcon() {
         if (!isDashboardVisible) return
-
-        // Remove Dashboard, Add Icon
         windowManager.removeView(dashboardView)
         windowManager.addView(iconView, iconParams)
-
         isDashboardVisible = false
     }
 

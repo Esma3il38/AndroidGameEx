@@ -21,6 +21,7 @@
 
 // Forward Declaration for JNI compatibility to resolve circular dependency
 extern "C" JNIEXPORT jint JNICALL Java_com_techted89_gameex_NativeScanner_searchMemoryString(JNIEnv* env, jobject thiz, jint pid, jstring queryString);
+extern "C" JNIEXPORT jint JNICALL Java_com_techted89_gameex_NativeScanner_filterMemoryString(JNIEnv* env, jobject thiz, jint pid, jstring queryString);
 
 // Define the structure of a memory region
 struct MemoryRegion {
@@ -219,298 +220,6 @@ bool ptraceRead(int pid, uintptr_t addr, void* dest, size_t size) {
 }
 
 extern "C"
-JNIEXPORT jint JNICALL
-Java_com_techted89_gameex_NativeScanner_searchMemoryString(
-        JNIEnv* env,
-        jobject /* this */,
-        jint pid,
-        jstring queryString) {
-    if (queryString == nullptr) {
-        return 0;
-    }
-
-    const char* queryCStr = env->GetStringUTFChars(queryString, nullptr);
-    if (queryCStr == nullptr) {
-        return 0;
-    }
-    std::string query(queryCStr);
-    env->ReleaseStringUTFChars(queryString, queryCStr);
-
-    SearchCondition cond = parseSearchQuery(query);
-
-    std::vector<jlong> localResults;
-    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
-
-    const size_t CHUNK_SIZE = 4096;
-    std::vector<uint8_t> buffer(CHUNK_SIZE);
-    int matchCount = 0;
-
-    for (const auto& region : regions) {
-        uintptr_t currentAddr = region.startAddress;
-        while (currentAddr < region.endAddress) {
-            uintptr_t remaining = region.endAddress - currentAddr;
-            size_t readSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : (size_t)remaining;
-
-            struct iovec local_iov = {buffer.data(), readSize};
-            struct iovec remote_iov = {(void*)currentAddr, readSize};
-
-            ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
-
-            if (bytesRead >= 4) {
-                size_t limit = (size_t)bytesRead;
-                for (size_t i = 0; i + 4 <= limit; i += 4) {
-                    int val;
-                    std::memcpy(&val, &buffer[i], sizeof(int));
-
-                    bool match = false;
-                    switch (cond.type) {
-                        case EXACT:
-                            match = (val == cond.value1);
-                            break;
-                        case RANGE:
-                            match = (val >= cond.value1 && val <= cond.value2);
-                            break;
-                        case ENCRYPTED_XOR:
-                            match = ((val ^ cond.xorKey) == cond.value1);
-                            break;
-                        default:
-                            break;
-                    }
-
-                    if (match) {
-                        localResults.push_back((jlong)(currentAddr + i));
-                        matchCount++;
-                        if (matchCount >= 100000) goto search_complete;
-                    }
-                }
-            }
-            currentAddr += readSize;
-        }
-    }
-
-search_complete:
-    {
-        std::lock_guard<std::mutex> lock(searchResultsMutex);
-        searchResults = std::move(localResults);
-    }
-    return matchCount;
-}
-
-extern "C"
-JNIEXPORT jint JNICALL
-Java_com_techted89_gameex_NativeScanner_searchMemory(
-        JNIEnv* env,
-        jobject thiz,
-        jint pid,
-        jint valueToFind) {
-    std::string query = std::to_string(valueToFind);
-    jstring queryString = env->NewStringUTF(query.c_str());
-    if (queryString == nullptr) {
-        return 0;
-    }
-    jint result = Java_com_techted89_gameex_NativeScanner_searchMemoryString(env, thiz, pid, queryString);
-    env->DeleteLocalRef(queryString);
-    return result;
-}
-
-extern "C" /**
- * @brief Install a hook at the target address.
- */
-JNIEXPORT jboolean JNICALL
-Java_com_techted89_gameex_NativeScanner_installHook(
-        JNIEnv* env,
-        jobject,
-        jint pid,
-        jlong targetAddress,
-        jlong replacementAddress) {
-    if (targetAddress == 0 || replacementAddress == 0) return JNI_FALSE;
-
-    // ARM64 Absolute Jump Trampoline (16 bytes)
-    // LDR X16, #8 (PC+8) -> Load the address at PC+8 into X16
-    // BR X16             -> Branch to X16
-    // [64-bit Address]
-    uint32_t trampolineCode[] = {
-        0x58000050, // LDR X16, #8
-        0xD61F0200  // BR X16
-    };
-
-    std::vector<uint8_t> trampoline(16);
-    memcpy(trampoline.data(), trampolineCode, 8);
-    memcpy(trampoline.data() + 8, &replacementAddress, 8);
-
-    // Check for Self-Patching
-    if (pid == getpid()) {
-        long pageSize = sysconf(_SC_PAGESIZE);
-        void* pageStart = (void*)(targetAddress & ~(pageSize - 1));
-        if (mprotect(pageStart, pageSize, PROT_READ | PROT_WRITE | PROT_EXEC) < 0) {
-             __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "mprotect failed: %s", strerror(errno));
-             return JNI_FALSE;
-        }
-
-        // Backup original bytes for self-patching
-        std::vector<uint8_t> backup(16);
-        memcpy(backup.data(), (void*)targetAddress, 16);
-        {
-            std::lock_guard<std::mutex> lock(originalBytesMutex);
-            originalBytesMap[targetAddress] = backup;
-        }
-
-        std::memcpy((void*)targetAddress, trampoline.data(), trampoline.size());
-        __builtin___clear_cache((char*)targetAddress, (char*)targetAddress + trampoline.size());
-        return JNI_TRUE;
-    }
-
-    // External Process: Attach to process to freeze it and enable ptrace access
-    if (ptrace(PTRACE_ATTACH, pid, nullptr, nullptr) == -1) {
-        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Failed to attach: %s", strerror(errno));
-        return JNI_FALSE;
-    }
-    waitpid(pid, nullptr, 0);
-
-    // 2. Backup original bytes
-    std::vector<uint8_t> backup(16);
-    if (!ptraceRead(pid, (uintptr_t)targetAddress, backup.data(), 16)) {
-        ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
-        return JNI_FALSE;
-    }
-
-    // Save backup
-    {
-        std::lock_guard<std::mutex> lock(originalBytesMutex);
-        originalBytesMap[targetAddress] = backup;
-    }
-
-    // 3. Write Trampoline
-    bool success = ptraceWrite(pid, (uintptr_t)targetAddress, trampoline.data(), 16);
-
-    // 4. Detach
-    ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
-
-    return success ? JNI_TRUE : JNI_FALSE;
-}
-
-extern "C" /**
- * @brief Remove a previously installed hook.
- */
-JNIEXPORT jboolean JNICALL
-Java_com_techted89_gameex_NativeScanner_removeHook(
-        JNIEnv* env,
-        jobject,
-        jint pid,
-        jlong targetAddress) {
-    std::vector<uint8_t> backup;
-    {
-        std::lock_guard<std::mutex> lock(originalBytesMutex);
-        auto it = originalBytesMap.find(targetAddress);
-        if (it == originalBytesMap.end()) {
-            return JNI_FALSE; // No backup found
-        }
-        backup = it->second;
-    }
-
-    // Check for Self-Patching
-    if (pid == getpid()) {
-        long pageSize = sysconf(_SC_PAGESIZE);
-        void* pageStart = (void*)(targetAddress & ~(pageSize - 1));
-        if (mprotect(pageStart, pageSize, PROT_READ | PROT_WRITE | PROT_EXEC) < 0) {
-             __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "mprotect failed: %s", strerror(errno));
-             return JNI_FALSE;
-        }
-        std::memcpy((void*)targetAddress, backup.data(), backup.size());
-        __builtin___clear_cache((char*)targetAddress, (char*)targetAddress + backup.size());
-
-        {
-            std::lock_guard<std::mutex> lock(originalBytesMutex);
-            originalBytesMap.erase(targetAddress);
-        }
-        return JNI_TRUE;
-    }
-
-    if (ptrace(PTRACE_ATTACH, pid, nullptr, nullptr) == -1) {
-        return JNI_FALSE;
-    }
-    waitpid(pid, nullptr, 0);
-
-    bool success = ptraceWrite(pid, (uintptr_t)targetAddress, backup.data(), backup.size());
-
-    ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
-
-    if (success) {
-        std::lock_guard<std::mutex> lock(originalBytesMutex);
-        originalBytesMap.erase(targetAddress);
-    }
-
-    return success ? JNI_TRUE : JNI_FALSE;
-}
-
-bool dumpMemoryInternal(int pid, long from, long to, const std::string& dumpDir) {
-    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
-    const size_t CHUNK_SIZE = 4096;
-    std::vector<uint8_t> buffer(CHUNK_SIZE);
-
-    for (const auto& region : regions) {
-        if (from != 0 && region.endAddress < (uintptr_t)from) continue;
-        if (to != -1 && region.startAddress > (uintptr_t)to) continue;
-
-        uintptr_t start = region.startAddress;
-        uintptr_t end = region.endAddress;
-
-        if (from != 0 && start < (uintptr_t)from) start = (uintptr_t)from;
-        if (to != -1 && end > (uintptr_t)to) end = (uintptr_t)to;
-
-        if (start >= end) continue;
-
-        std::stringstream ss;
-        ss << dumpDir << "/" << std::hex << start << "-" << end << ".dump";
-        std::ofstream outFile(ss.str(), std::ios::binary);
-
-        if (!outFile.is_open()) continue;
-
-        uintptr_t current = start;
-        while (current < end) {
-            size_t readSize = std::min((size_t)(end - current), CHUNK_SIZE);
-            struct iovec local_iov = {buffer.data(), readSize};
-            struct iovec remote_iov = {(void*)current, readSize};
-
-            ssize_t bytes = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
-            if (bytes > 0) {
-                outFile.write((char*)buffer.data(), bytes);
-            }
-            current += readSize;
-        }
-        outFile.close();
-    }
-    return true;
-}
-
-extern "C"
-JNIEXPORT jboolean JNICALL
-Java_com_techted89_gameex_NativeScanner_dumpMemory(
-        JNIEnv* env,
-        jobject,
-        jint pid,
-        jlong from,
-        jlong to,
-        jstring path) {
-    if (path == nullptr) return JNI_FALSE;
-
-    const char* pathC = env->GetStringUTFChars(path, nullptr);
-    if (pathC == nullptr) return JNI_FALSE;
-    std::string dumpDir(pathC);
-    env->ReleaseStringUTFChars(path, pathC);
-
-    return dumpMemoryInternal(pid, from, to, dumpDir) ? JNI_TRUE : JNI_FALSE;
-}
-
-extern "C"
-JNIEXPORT void JNICALL
-Java_com_techted89_gameex_NativeScanner_enableStealthMode(
-        JNIEnv* env,
-        jobject /* this */) {
-    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Stealth Mode: Activated");
-}
-
-extern "C"
 JNIEXPORT void JNICALL
 Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
         JNIEnv* env,
@@ -635,85 +344,309 @@ fuzzy_complete:
 }
 
 extern "C"
-JNIEXPORT jlongArray JNICALL
-Java_com_techted89_gameex_NativeScanner_getResults(
-        JNIEnv* env,
-        jobject /* this */,
-        jint limit) {
-    std::lock_guard<std::mutex> lock(searchResultsMutex);
-
-    size_t safeLimit = (limit < 0) ? 0 : (size_t)limit;
-    size_t count = std::min(searchResults.size(), safeLimit);
-
-    jlongArray resultArr = env->NewLongArray(count);
-    if (resultArr == nullptr) {
-        return nullptr;
-    }
-
-    if (count > 0) {
-        env->SetLongArrayRegion(resultArr, 0, count, searchResults.data());
-    }
-
-    return resultArr;
-}
-
-extern "C"
-JNIEXPORT jbyteArray JNICALL
-Java_com_techted89_gameex_NativeScanner_readMemory(
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_searchMemoryString(
         JNIEnv* env,
         jobject /* this */,
         jint pid,
-        jlong address,
-        jint size) {
-    if (size <= 0 || size > 1024 * 1024) {
-        return env->NewByteArray(0);
+        jstring queryString) {
+    if (queryString == nullptr) {
+        return 0;
     }
 
-    std::vector<uint8_t> buffer(size);
-    struct iovec local_iov = {buffer.data(), (size_t)size};
-    struct iovec remote_iov = {(void*)(uintptr_t)address, (size_t)size};
+    const char* queryCStr = env->GetStringUTFChars(queryString, nullptr);
+    if (queryCStr == nullptr) {
+        return 0;
+    }
+    std::string query(queryCStr);
+    env->ReleaseStringUTFChars(queryString, queryCStr);
 
-    ssize_t bytes_read = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+    SearchCondition cond = parseSearchQuery(query);
 
-    if (bytes_read == -1) {
-        return env->NewByteArray(0);
+    std::vector<jlong> localResults;
+    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
+
+    const size_t CHUNK_SIZE = 4096;
+    std::vector<uint8_t> buffer(CHUNK_SIZE);
+    int matchCount = 0;
+
+    for (const auto& region : regions) {
+        uintptr_t currentAddr = region.startAddress;
+        while (currentAddr < region.endAddress) {
+            uintptr_t remaining = region.endAddress - currentAddr;
+            size_t readSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : (size_t)remaining;
+
+            struct iovec local_iov = {buffer.data(), readSize};
+            struct iovec remote_iov = {(void*)currentAddr, readSize};
+
+            ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+
+            if (bytesRead >= 4) {
+                size_t limit = (size_t)bytesRead;
+                for (size_t i = 0; i + 4 <= limit; i += 4) {
+                    int val;
+                    std::memcpy(&val, &buffer[i], sizeof(int));
+
+                    bool match = false;
+                    switch (cond.type) {
+                        case EXACT:
+                            match = (val == cond.value1);
+                            break;
+                        case RANGE:
+                            match = (val >= cond.value1 && val <= cond.value2);
+                            break;
+                        case ENCRYPTED_XOR:
+                            match = ((val ^ cond.xorKey) == cond.value1);
+                            break;
+                        default:
+                            break;
+                    }
+
+                    if (match) {
+                        localResults.push_back((jlong)(currentAddr + i));
+                        matchCount++;
+                        if (matchCount >= 100000) goto search_complete;
+                    }
+                }
+            }
+            currentAddr += readSize;
+        }
     }
 
-    jbyteArray result = env->NewByteArray(bytes_read);
-    if (result == nullptr) {
-        return nullptr;
+search_complete:
+    {
+        std::lock_guard<std::mutex> lock(searchResultsMutex);
+        searchResults = std::move(localResults);
     }
+    return matchCount;
+}
 
-    env->SetByteArrayRegion(result, 0, bytes_read, reinterpret_cast<jbyte*>(buffer.data()));
-    return result;
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_searchMemory(
+        JNIEnv* env,
+        jobject thiz,
+        jint pid,
+        jstring valueStr,
+        jint type) {
+    // Basic delegation to string search for now, to support legacy and new calls
+    // Real implementation would handle types
+    return Java_com_techted89_gameex_NativeScanner_searchMemoryString(env, thiz, pid, valueStr);
 }
 
 extern "C"
 JNIEXPORT jint JNICALL
 Java_com_techted89_gameex_NativeScanner_filterMemory(
         JNIEnv* env,
-        jobject /* this */,
+        jobject thiz,
         jint pid,
-        jint valueToFind) {
-    std::lock_guard<std::mutex> lock(searchResultsMutex);
+        jstring valueStr,
+        jint type) {
+    // Basic delegation
+    return Java_com_techted89_gameex_NativeScanner_filterMemoryString(env, thiz, pid, valueStr);
+}
 
-    auto it = std::remove_if(searchResults.begin(), searchResults.end(), [&](jlong addr) {
-        int val = 0;
-        struct iovec local_iov = {&val, sizeof(int)};
-        struct iovec remote_iov = {(void*)(uintptr_t)addr, sizeof(int)};
+extern "C" /**
+ * @brief Install a hook at the target address.
+ */
+JNIEXPORT jboolean JNICALL
+Java_com_techted89_gameex_NativeScanner_installHook(
+        JNIEnv* env,
+        jobject,
+        jint pid,
+        jlong targetAddress,
+        jlong replacementAddress) {
+    if (targetAddress == 0 || replacementAddress == 0) return JNI_FALSE;
 
-        ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+    // ARM64 Absolute Jump Trampoline (16 bytes)
+    // LDR X16, #8 (PC+8) -> Load the address at PC+8 into X16
+    // BR X16             -> Branch to X16
+    // [64-bit Address]
+    uint32_t trampolineCode[] = {
+        0x58000050, // LDR X16, #8
+        0xD61F0200  // BR X16
+    };
 
-        if (bytesRead != sizeof(int)) {
-            return true;
+    std::vector<uint8_t> trampoline(16);
+    memcpy(trampoline.data(), trampolineCode, 8);
+    memcpy(trampoline.data() + 8, &replacementAddress, 8);
+
+    // Check for Self-Patching
+    if (pid == getpid()) {
+        long pageSize = sysconf(_SC_PAGESIZE);
+        void* pageStart = (void*)(targetAddress & ~(pageSize - 1));
+        if (mprotect(pageStart, pageSize, PROT_READ | PROT_WRITE | PROT_EXEC) < 0) {
+             __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "mprotect failed: %s", strerror(errno));
+             return JNI_FALSE;
         }
-        return val != valueToFind;
-    });
 
-    searchResults.erase(it, searchResults.end());
+        // Backup original bytes for self-patching
+        std::vector<uint8_t> backup(16);
+        memcpy(backup.data(), (void*)targetAddress, 16);
+        {
+            std::lock_guard<std::mutex> lock(originalBytesMutex);
+            originalBytesMap[targetAddress] = backup;
+        }
 
-    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Filter Complete. Remaining: %zu", searchResults.size());
-    return (jint)searchResults.size();
+        std::memcpy((void*)targetAddress, trampoline.data(), trampoline.size());
+        __builtin___clear_cache((char*)targetAddress, (char*)targetAddress + trampoline.size());
+        return JNI_TRUE;
+    }
+
+    // External Process: Attach to process to freeze it and enable ptrace access
+    if (ptrace(PTRACE_ATTACH, pid, nullptr, nullptr) == -1) {
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Failed to attach: %s", strerror(errno));
+        return JNI_FALSE;
+    }
+    waitpid(pid, nullptr, 0);
+
+    // 2. Backup original bytes
+    std::vector<uint8_t> backup(16);
+    if (!ptraceRead(pid, (uintptr_t)targetAddress, backup.data(), 16)) {
+        ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
+        return JNI_FALSE;
+    }
+
+    // Save backup
+    {
+        std::lock_guard<std::mutex> lock(originalBytesMutex);
+        originalBytesMap[targetAddress] = backup;
+    }
+
+    // 3. Write Trampoline
+    bool success = ptraceWrite(pid, (uintptr_t)targetAddress, trampoline.data(), 16);
+
+    // 4. Detach
+    ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
+
+    return success ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C"
+JNIEXPORT jboolean JNICALL
+Java_com_techted89_gameex_NativeScanner_removeHook(
+        JNIEnv* env,
+        jobject,
+        jint pid,
+        jlong targetAddress) {
+    std::vector<uint8_t> backup;
+    {
+        std::lock_guard<std::mutex> lock(originalBytesMutex);
+        auto it = originalBytesMap.find(targetAddress);
+        if (it == originalBytesMap.end()) return JNI_FALSE;
+        backup = it->second;
+    }
+
+    if (pid == getpid()) {
+        long pageSize = sysconf(_SC_PAGESIZE);
+        void* pageStart = (void*)(targetAddress & ~(pageSize - 1));
+        if (mprotect(pageStart, pageSize, PROT_READ | PROT_WRITE | PROT_EXEC) < 0) return JNI_FALSE;
+        std::memcpy((void*)targetAddress, backup.data(), backup.size());
+        __builtin___clear_cache((char*)targetAddress, (char*)targetAddress + backup.size());
+        {
+            std::lock_guard<std::mutex> lock(originalBytesMutex);
+            originalBytesMap.erase(targetAddress);
+        }
+        return JNI_TRUE;
+    }
+
+    if (ptrace(PTRACE_ATTACH, pid, nullptr, nullptr) == -1) return JNI_FALSE;
+    waitpid(pid, nullptr, 0);
+    bool success = ptraceWrite(pid, (uintptr_t)targetAddress, backup.data(), backup.size());
+    ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
+
+    if (success) {
+        std::lock_guard<std::mutex> lock(originalBytesMutex);
+        originalBytesMap.erase(targetAddress);
+    }
+    return success ? JNI_TRUE : JNI_FALSE;
+}
+
+bool dumpMemoryInternal(int pid, long from, long to, const std::string& dumpDir) {
+    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
+    const size_t CHUNK_SIZE = 4096;
+    std::vector<uint8_t> buffer(CHUNK_SIZE);
+
+    for (const auto& region : regions) {
+        if (from != 0 && region.endAddress < (uintptr_t)from) continue;
+        if (to != -1 && region.startAddress > (uintptr_t)to) continue;
+
+        uintptr_t start = region.startAddress;
+        uintptr_t end = region.endAddress;
+
+        if (from != 0 && start < (uintptr_t)from) start = (uintptr_t)from;
+        if (to != -1 && end > (uintptr_t)to) end = (uintptr_t)to;
+
+        if (start >= end) continue;
+
+        std::stringstream ss;
+        ss << dumpDir << "/" << std::hex << start << "-" << end << ".dump";
+        std::ofstream outFile(ss.str(), std::ios::binary);
+
+        if (!outFile.is_open()) continue;
+
+        uintptr_t current = start;
+        while (current < end) {
+            size_t readSize = std::min((size_t)(end - current), CHUNK_SIZE);
+            struct iovec local_iov = {buffer.data(), readSize};
+            struct iovec remote_iov = {(void*)current, readSize};
+
+            ssize_t bytes = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+            if (bytes > 0) {
+                outFile.write((char*)buffer.data(), bytes);
+            }
+            current += readSize;
+        }
+        outFile.close();
+    }
+    return true;
+}
+
+extern "C"
+JNIEXPORT jboolean JNICALL
+Java_com_techted89_gameex_NativeScanner_dumpMemory(
+        JNIEnv* env,
+        jobject,
+        jint pid,
+        jlong from,
+        jlong to,
+        jstring path) {
+    if (path == nullptr) return JNI_FALSE;
+    const char* pathC = env->GetStringUTFChars(path, nullptr);
+    std::string dumpDir(pathC);
+    env->ReleaseStringUTFChars(path, pathC);
+    return dumpMemoryInternal(pid, from, to, dumpDir) ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_techted89_gameex_NativeScanner_enableStealthMode(JNIEnv*, jobject) {
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Stealth Mode: Activated");
+}
+
+extern "C"
+JNIEXPORT jlongArray JNICALL
+Java_com_techted89_gameex_NativeScanner_getResults(JNIEnv* env, jobject, jint limit) {
+    std::lock_guard<std::mutex> lock(searchResultsMutex);
+    size_t count = std::min(searchResults.size(), (size_t)limit);
+    jlongArray resultArr = env->NewLongArray(count);
+    if (count > 0) env->SetLongArrayRegion(resultArr, 0, count, searchResults.data());
+    return resultArr;
+}
+
+extern "C"
+JNIEXPORT jbyteArray JNICALL
+Java_com_techted89_gameex_NativeScanner_readMemory(
+        JNIEnv* env, jobject, jint pid, jlong address, jint size) {
+    if (size <= 0 || size > 1024 * 1024) return env->NewByteArray(0);
+    std::vector<uint8_t> buffer(size);
+    struct iovec local = {buffer.data(), (size_t)size};
+    struct iovec remote = {(void*)(uintptr_t)address, (size_t)size};
+    ssize_t bytes = process_vm_readv(pid, &local, 1, &remote, 1, 0);
+    if (bytes == -1) return env->NewByteArray(0);
+    jbyteArray result = env->NewByteArray(bytes);
+    env->SetByteArrayRegion(result, 0, bytes, (jbyte*)buffer.data());
+    return result;
 }
 
 extern "C"
@@ -768,36 +701,26 @@ Java_com_techted89_gameex_NativeScanner_filterMemoryString(
 
 extern "C"
 JNIEXPORT jobjectArray JNICALL
-Java_com_techted89_gameex_NativeScanner_getLoadedModules(
-        JNIEnv* env,
-        jobject /* this */,
-        jint pid) {
+Java_com_techted89_gameex_NativeScanner_getLoadedModules(JNIEnv* env, jobject, jint pid) {
     std::set<std::string> modules;
     std::string mapsPath = "/proc/" + std::to_string(pid) + "/maps";
     std::ifstream mapsFile(mapsPath);
-
     if (mapsFile.is_open()) {
         std::string line;
         while (std::getline(mapsFile, line)) {
             if (line.find(".so") != std::string::npos) {
-                size_t lastSpace = line.find_last_of(" \t");
-                if (lastSpace != std::string::npos && lastSpace + 1 < line.length()) {
-                     std::string path = line.substr(lastSpace + 1);
-                     modules.insert(path);
-                }
+                size_t last = line.find_last_of(" \t");
+                if (last != std::string::npos && last + 1 < line.length()) modules.insert(line.substr(last + 1));
             }
         }
     }
-
-    jclass stringClass = env->FindClass("java/lang/String");
-    jobjectArray result = env->NewObjectArray(modules.size(), stringClass, nullptr);
-
+    jclass strClass = env->FindClass("java/lang/String");
+    jobjectArray result = env->NewObjectArray(modules.size(), strClass, nullptr);
     int i = 0;
     for (const auto& mod : modules) {
         jstring s = env->NewStringUTF(mod.c_str());
         env->SetObjectArrayElement(result, i++, s);
         env->DeleteLocalRef(s);
     }
-
     return result;
 }

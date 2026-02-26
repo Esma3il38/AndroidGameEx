@@ -41,6 +41,16 @@ class MemoryResultAdapter(
             clipboard.setPrimaryClip(clip)
             Toast.makeText(context, "Value copied", Toast.LENGTH_SHORT).show()
         }
+
+        holder.itemView.setOnLongClickListener {
+            val context = holder.itemView.context
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val text = "0x%X: %s".format(item.address, item.value)
+            val clip = ClipData.newPlainText("Memory Result", text)
+            clipboard.setPrimaryClip(clip)
+            Toast.makeText(context, "Copied: $text", Toast.LENGTH_SHORT).show()
+            true
+        }
     }
 
     override fun getItemCount() = results.size

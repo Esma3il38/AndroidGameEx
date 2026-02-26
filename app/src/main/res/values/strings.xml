@@ -9,4 +9,13 @@
     <string name="cd_copy_value">Copy value</string>
     <string name="label_speed">Speed:</string>
     <string name="empty_results">No results found</string>
+
+    <!-- New strings for Process Selector -->
+    <string name="hint_search_process">Search processes...</string>
+    <string-array name="filter_options">
+        <item>All</item>
+        <item>System Apps</item>
+        <item>User Apps</item>
+        <item>Hooks</item>
+    </string-array>
 </resources>

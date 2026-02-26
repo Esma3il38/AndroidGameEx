@@ -20,7 +20,8 @@
             android:layout_height="wrap_content"
             android:text="Exact"
             android:textColor="#FFFFFF"
-            android:buttonTint="@color/primary_hacker_green"/>
+            android:buttonTint="@color/primary_hacker_green"
+            android:layout_weight="1"/>
         <RadioButton
             android:id="@+id/rb_fuzzy"
             android:layout_width="wrap_content"
@@ -28,7 +29,8 @@
             android:text="Fuzzy"
             android:textColor="#FFFFFF"
             android:buttonTint="@color/primary_hacker_green"
-            android:layout_marginStart="16dp"/>
+            android:layout_marginStart="16dp"
+            android:layout_weight="1"/>
     </RadioGroup>
 
     <com.google.android.material.textfield.TextInputLayout

@@ -7,9 +7,10 @@
         android:id="@+id/icon_image"
         android:layout_width="50dp"
         android:layout_height="50dp"
-        android:src="@mipmap/ic_launcher_round"
+        android:src="@drawable/ic_gameex_logo"
         android:background="@drawable/circle_bg_green"
         android:elevation="8dp"
+        android:padding="8dp"
         android:contentDescription="Open Scanner" />
 
     <View

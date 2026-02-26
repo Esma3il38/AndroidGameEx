@@ -35,7 +35,7 @@ class ProcessParserBenchmarkTest {
                      try {
                          val pid = pidStr.toInt()
                          // Construct ProcessInfo to be fair, assuming it's cheap
-                         ProcessInfo(pid, name)
+                         ProcessInfo(pid, name, name, null, true)
                      } catch (_: NumberFormatException) {
                          // Ignore
                      }

@@ -12,10 +12,14 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class ProcessSelectorActivity : AppCompatActivity() {
+
+    private val activityScope = CoroutineScope(Dispatchers.Main + Job())
 
     private val overlayPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -53,7 +57,7 @@ class ProcessSelectorActivity : AppCompatActivity() {
     }
 
     private fun loadProcesses(recycler: RecyclerView) {
-        CoroutineScope(Dispatchers.IO).launch {
+        activityScope.launch(Dispatchers.IO) {
             // Need root to see all processes ideally, but basic ps might work for now
             // Or requesting root first
             RootUtils.requestRoot()
@@ -65,6 +69,11 @@ class ProcessSelectorActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        activityScope.cancel()
     }
 
     private fun launchOverlayService(process: ProcessInfo) {

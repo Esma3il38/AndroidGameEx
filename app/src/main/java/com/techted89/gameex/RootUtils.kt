@@ -33,7 +33,7 @@ object RootUtils {
         while (line != null) {
             // Typical ps output: USER PID ... NAME
             val parts = line.trim().split(WHITESPACE_REGEX)
-            if (parts.size >= 9) {
+            if (parts.size >= 8) { // Relaxed check from 9 to 8
                 // Assuming standard android ps output where PID is usually 2nd column
                 // and Name is last column.
                 val pidStr = parts[1]

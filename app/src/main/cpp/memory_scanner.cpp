@@ -21,6 +21,8 @@
 
 // Forward Declaration for JNI compatibility to resolve circular dependency
 extern "C" JNIEXPORT jint JNICALL Java_com_techted89_gameex_NativeScanner_searchMemoryString(JNIEnv* env, jobject thiz, jint pid, jstring queryString);
+extern "C" JNIEXPORT jint JNICALL Java_com_techted89_gameex_NativeScanner_searchMemory__ILjava_lang_String_2I(JNIEnv* env, jobject thiz, jint pid, jstring valueStr, jint type);
+extern "C" JNIEXPORT jint JNICALL Java_com_techted89_gameex_NativeScanner_filterMemory__ILjava_lang_String_2I(JNIEnv* env, jobject thiz, jint pid, jstring valueStr, jint type);
 
 // Define the structure of a memory region
 struct MemoryRegion {
@@ -334,9 +336,19 @@ search_complete:
     return matchCount;
 }
 
+// [LEGACY/UNUSED] Original overloaded searchMemory without signature
+// extern "C"
+// JNIEXPORT jint JNICALL
+// Java_com_techted89_gameex_NativeScanner_searchMemory(
+//        JNIEnv* env,
+//        jobject thiz,
+//        jint pid,
+//        jstring valueStr,
+//        jint type) {
+
 extern "C"
 JNIEXPORT jint JNICALL
-Java_com_techted89_gameex_NativeScanner_searchMemory(
+Java_com_techted89_gameex_NativeScanner_searchMemory__ILjava_lang_String_2I(
         JNIEnv* env,
         jobject thiz,
         jint pid,
@@ -367,7 +379,7 @@ Java_com_techted89_gameex_NativeScanner_searchMemoryString(
         jobject thiz,
         jint pid,
         jstring queryString) {
-    return Java_com_techted89_gameex_NativeScanner_searchMemory(env, thiz, pid, queryString, TYPE_DWORD);
+    return Java_com_techted89_gameex_NativeScanner_searchMemory__ILjava_lang_String_2I(env, thiz, pid, queryString, TYPE_DWORD);
 }
 
 // Legacy support: searchMemory(int)
@@ -380,12 +392,22 @@ Java_com_techted89_gameex_NativeScanner_searchMemory__II(
         jint valueToFind) {
     std::string query = std::to_string(valueToFind);
     jstring queryString = env->NewStringUTF(query.c_str());
-    return Java_com_techted89_gameex_NativeScanner_searchMemory(env, thiz, pid, queryString, TYPE_DWORD);
+    return Java_com_techted89_gameex_NativeScanner_searchMemory__ILjava_lang_String_2I(env, thiz, pid, queryString, TYPE_DWORD);
 }
+
+// [LEGACY/UNUSED] Original overloaded filterMemory without signature
+// extern "C"
+// JNIEXPORT jint JNICALL
+// Java_com_techted89_gameex_NativeScanner_filterMemory(
+//        JNIEnv* env,
+//        jobject thiz,
+//        jint pid,
+//        jstring valueStr,
+//        jint type) {
 
 extern "C"
 JNIEXPORT jint JNICALL
-Java_com_techted89_gameex_NativeScanner_filterMemory(
+Java_com_techted89_gameex_NativeScanner_filterMemory__ILjava_lang_String_2I(
         JNIEnv* env,
         jobject thiz,
         jint pid,
@@ -465,7 +487,20 @@ Java_com_techted89_gameex_NativeScanner_filterMemoryString(
         jobject thiz,
         jint pid,
         jstring queryString) {
-    return Java_com_techted89_gameex_NativeScanner_filterMemory(env, thiz, pid, queryString, TYPE_DWORD);
+    return Java_com_techted89_gameex_NativeScanner_filterMemory__ILjava_lang_String_2I(env, thiz, pid, queryString, TYPE_DWORD);
+}
+
+// Legacy filter support: filterMemory(int)
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_filterMemory__II(
+        JNIEnv* env,
+        jobject thiz,
+        jint pid,
+        jint valueToFind) {
+    std::string query = std::to_string(valueToFind);
+    jstring queryString = env->NewStringUTF(query.c_str());
+    return Java_com_techted89_gameex_NativeScanner_filterMemory__ILjava_lang_String_2I(env, thiz, pid, queryString, TYPE_DWORD);
 }
 
 // --- Fuzzy Scan Logic ---

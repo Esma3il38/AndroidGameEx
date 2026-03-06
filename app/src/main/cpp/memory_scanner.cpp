@@ -625,6 +625,7 @@ Java_com_techted89_gameex_NativeScanner_installHook(
         jint pid,
         jlong targetAddress,
         jlong replacementAddress) {
+#ifdef __aarch64__
     if (targetAddress == 0 || replacementAddress == 0) return JNI_FALSE;
 
     uint32_t trampolineCode[] = {
@@ -670,6 +671,10 @@ Java_com_techted89_gameex_NativeScanner_installHook(
     bool success = ptraceWrite(pid, (uintptr_t)targetAddress, trampoline.data(), 16);
     ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
     return success ? JNI_TRUE : JNI_FALSE;
+#else
+    __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "installHook is only supported on ARM64");
+    return JNI_FALSE;
+#endif
 }
 
 extern "C"

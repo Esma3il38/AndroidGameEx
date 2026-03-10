@@ -1,0 +1,26 @@
+cat << 'PATCHEOF' > app/src/main/cpp/memory_scanner.cpp.patch
+--- app/src/main/cpp/memory_scanner.cpp
++++ app/src/main/cpp/memory_scanner.cpp
+@@ -467,6 +467,19 @@
+     return Java_com_techted89_gameex_NativeScanner_filterMemory(env, thiz, pid, queryString, TYPE_DWORD);
+ }
+
++// Legacy filter support: filterMemory(int)
++extern "C"
++JNIEXPORT jint JNICALL
++Java_com_techted89_gameex_NativeScanner_filterMemory__II(
++        JNIEnv* env,
++        jobject thiz,
++        jint pid,
++        jint valueToFind) {
++    std::string query = std::to_string(valueToFind);
++    jstring queryString = env->NewStringUTF(query.c_str());
++    return Java_com_techted89_gameex_NativeScanner_filterMemory(env, thiz, pid, queryString, TYPE_DWORD);
++}
++
+ // --- Fuzzy Scan Logic ---
+
+ extern "C"
+PATCHEOF
+patch -p0 < app/src/main/cpp/memory_scanner.cpp.patch
+./gradlew build

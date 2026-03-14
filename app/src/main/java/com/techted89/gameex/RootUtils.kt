@@ -31,6 +31,7 @@ object RootUtils {
         val processes = mutableListOf<ProcessInfo>()
         var line: String? = reader.readLine()
         while (line != null) {
+            /* [LEGACY/UNUSED]
             // Typical ps output: USER PID ... NAME
             val parts = line.trim().split(WHITESPACE_REGEX)
             if (parts.size >= 9) {
@@ -44,6 +45,54 @@ object RootUtils {
                     processes.add(ProcessInfo(pid, name, name, null, true))
                 } catch (e: NumberFormatException) {
                     // Ignore header or lines that don't match expected format
+                }
+            }
+            */
+
+            // Fast manual character-by-character parsing
+            var length = line.length
+            var i = 0
+            while (i < length && line[i] <= ' ') i++ // trimStart
+            while (length > i && line[length - 1] <= ' ') length-- // trimEnd
+
+            if (i < length) {
+                var colCount = 0
+                var pidStr = ""
+                var nameStr = ""
+                var inWord = false
+                var wordStart = i
+
+                while (i < length) {
+                    val c = line[i]
+                    val isSpace = c <= ' '
+
+                    if (!isSpace && !inWord) {
+                        inWord = true
+                        wordStart = i
+                    } else if (isSpace && inWord) {
+                        inWord = false
+                        val word = line.substring(wordStart, i)
+                        if (colCount == 1) {
+                            pidStr = word
+                        }
+                        nameStr = word // the last word processed becomes the name
+                        colCount++
+                    }
+                    i++
+                }
+
+                if (inWord) {
+                    nameStr = line.substring(wordStart, length)
+                    colCount++
+                }
+
+                if (colCount >= 9) {
+                    try {
+                        val pid = pidStr.toInt()
+                        processes.add(ProcessInfo(pid, nameStr, nameStr, null, true))
+                    } catch (e: NumberFormatException) {
+                        // Ignore headers
+                    }
                 }
             }
             line = reader.readLine()

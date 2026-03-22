@@ -27,31 +27,6 @@ object RootUtils {
         }
     }
 
-    // [LEGACY/UNUSED]
-    // fun parsePsOutput(reader: BufferedReader): List<ProcessInfo> {
-    //     val processes = mutableListOf<ProcessInfo>()
-    //     var line: String? = reader.readLine()
-    //     while (line != null) {
-    //         // Typical ps output: USER PID ... NAME
-    //         val parts = line.trim().split(WHITESPACE_REGEX)
-    //         if (parts.size >= 9) {
-    //             // Assuming standard android ps output where PID is usually 2nd column
-    //             // and Name is last column.
-    //             val pidStr = parts[1]
-    //             val name = parts.last()
-    //             try {
-    //                 val pid = pidStr.toInt()
-    //                 // Default values for raw parsing
-    //                 processes.add(ProcessInfo(pid, name, name, null, true))
-    //             } catch (e: NumberFormatException) {
-    //                 // Ignore header or lines that don't match expected format
-    //             }
-    //         }
-    //         line = reader.readLine()
-    //     }
-    //     return processes
-    // }
-
     fun parsePsOutput(reader: BufferedReader): List<ProcessInfo> {
         val processes = mutableListOf<ProcessInfo>()
         var line: String? = reader.readLine()
@@ -76,7 +51,12 @@ object RootUtils {
                             while (i <= end && line[i] > ' ') {
                                 val c = line[i]
                                 if (c in '0'..'9') {
-                                    pid = pid * 10 + (c - '0')
+                                    val digit = c - '0'
+                                    if (pid > (Int.MAX_VALUE - digit) / 10) {
+                                        isValidPid = false
+                                        break
+                                    }
+                                    pid = pid * 10 + digit
                                 } else {
                                     isValidPid = false
                                 }

@@ -9,17 +9,37 @@ import java.io.InputStreamReader
 object RootUtils {
     private val WHITESPACE_REGEX = "\\s+".toRegex()
 
+    // [LEGACY/UNUSED]
+    // fun requestRoot(): Boolean {
+    //     var process: Process? = null
+    //     return try {
+    //         process = Runtime.getRuntime().exec("su")
+    //         DataOutputStream(process.outputStream).use { os ->
+    //             os.writeBytes("echo root_access_check\n")
+    //             os.writeBytes("exit\n")
+    //             os.flush()
+    //         }
+    //         process.waitFor()
+    //         process.exitValue() == 0
+    //     } catch (e: Exception) {
+    //         false
+    //     } finally {
+    //         process?.destroy()
+    //     }
+    // }
+
     fun requestRoot(): Boolean {
         var process: Process? = null
         return try {
-            process = Runtime.getRuntime().exec("su")
-            DataOutputStream(process.outputStream).use { os ->
+            val p = Runtime.getRuntime().exec("su")
+            process = p
+            DataOutputStream(p.outputStream).use { os ->
                 os.writeBytes("echo root_access_check\n")
                 os.writeBytes("exit\n")
                 os.flush()
             }
-            process.waitFor()
-            process.exitValue() == 0
+            p.waitFor()
+            p.exitValue() == 0
         } catch (e: Exception) {
             false
         } finally {
@@ -27,23 +47,77 @@ object RootUtils {
         }
     }
 
+    // [LEGACY/UNUSED]
+    // fun parsePsOutput(reader: BufferedReader): List<ProcessInfo> {
+    //     val processes = mutableListOf<ProcessInfo>()
+    //     var line: String? = reader.readLine()
+    //     while (line != null) {
+    //         // Typical ps output: USER PID ... NAME
+    //         val parts = line.trim().split(WHITESPACE_REGEX)
+    //         if (parts.size >= 9) {
+    //             // Assuming standard android ps output where PID is usually 2nd column
+    //             // and Name is last column.
+    //             val pidStr = parts[1]
+    //             val name = parts.last()
+    //             try {
+    //                 val pid = pidStr.toInt()
+    //                 // Default values for raw parsing
+    //                 processes.add(ProcessInfo(pid, name, name, null, true))
+    //             } catch (e: NumberFormatException) {
+    //                 // Ignore header or lines that don't match expected format
+    //             }
+    //         }
+    //         line = reader.readLine()
+    //     }
+    //     return processes
+    // }
+
     fun parsePsOutput(reader: BufferedReader): List<ProcessInfo> {
         val processes = mutableListOf<ProcessInfo>()
         var line: String? = reader.readLine()
         while (line != null) {
-            // Typical ps output: USER PID ... NAME
-            val parts = line.trim().split(WHITESPACE_REGEX)
-            if (parts.size >= 9) {
-                // Assuming standard android ps output where PID is usually 2nd column
-                // and Name is last column.
-                val pidStr = parts[1]
-                val name = parts.last()
+            val trimmedLine = line.trim()
+            if (trimmedLine.isEmpty()) {
+                line = reader.readLine()
+                continue
+            }
+
+            var wordCount = 0
+            var inWord = false
+            var pidStart = -1
+            var pidEnd = -1
+            var nameStart = -1
+            var lastCharIndex = trimmedLine.length - 1
+
+            for (i in 0..lastCharIndex) {
+                val c = trimmedLine[i]
+                if (c == ' ' || c == '\t') {
+                    if (inWord) {
+                        inWord = false
+                        if (wordCount == 2) {
+                            pidEnd = i
+                        }
+                    }
+                } else {
+                    if (!inWord) {
+                        inWord = true
+                        wordCount++
+                        if (wordCount == 2) {
+                            pidStart = i
+                        }
+                        nameStart = i
+                    }
+                }
+            }
+
+            if (wordCount >= 9 && pidStart != -1 && pidEnd != -1) {
                 try {
+                    val pidStr = trimmedLine.substring(pidStart, pidEnd)
+                    val name = trimmedLine.substring(nameStart)
                     val pid = pidStr.toInt()
-                    // Default values for raw parsing
                     processes.add(ProcessInfo(pid, name, name, null, true))
                 } catch (e: NumberFormatException) {
-                    // Ignore header or lines that don't match expected format
+                    // Ignore
                 }
             }
             line = reader.readLine()
@@ -53,39 +127,75 @@ object RootUtils {
 
     fun getRunningProcesses(context: Context): List<ProcessInfo> {
         val processes = mutableListOf<ProcessInfo>()
-        // Execute ps -A via su to see all processes
+        // [LEGACY/UNUSED]
+        // var process: Process? = null
+        // try {
+        //     process = Runtime.getRuntime().exec("su")
+        //
+        //     DataOutputStream(process.outputStream).use { os ->
+        //         os.writeBytes("ps -A\n")
+        //         os.writeBytes("exit\n")
+        //         os.flush()
+        //     }
+        //
+        //     val rawProcesses = process.inputStream.bufferedReader().use { reader ->
+        //         parsePsOutput(reader)
+        //     }
+
         var process: Process? = null
         try {
-            process = Runtime.getRuntime().exec("su")
+            val p = Runtime.getRuntime().exec("su")
+            process = p
 
-            DataOutputStream(process.outputStream).use { os ->
+            DataOutputStream(p.outputStream).use { os ->
                 os.writeBytes("ps -A\n")
                 os.writeBytes("exit\n")
                 os.flush()
             }
 
-            val rawProcesses = process.inputStream.bufferedReader().use { reader ->
+            val rawProcesses = p.inputStream.bufferedReader().use { reader ->
                 parsePsOutput(reader)
             }
 
-            // Enrich with PackageManager info
+            // [LEGACY/UNUSED]
+            // // Enrich with PackageManager info
+            // val pm = context.packageManager
+            // processes.addAll(rawProcesses.map { info ->
+            //     try {
+            //         val appInfo = pm.getApplicationInfo(info.processName, 0)
+            //         val appName = pm.getApplicationLabel(appInfo).toString()
+            //         val icon = pm.getApplicationIcon(appInfo)
+            //         val isSystem = appInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0
+            //         info.copy(appName = appName, icon = icon, isSystemApp = isSystem)
+            //     } catch (e: PackageManager.NameNotFoundException) {
+            //         // Not an app, keep defaults (isSystemApp=true is reasonable for native processes)
+            //         info
+            //     } catch (e: Exception) {
+            //          info
+            //     }
+            // })
+
             val pm = context.packageManager
+            val installedApps = pm.getInstalledApplications(0)
+            val appInfoMap = installedApps.associateBy { it.packageName }
+
             processes.addAll(rawProcesses.map { info ->
-                try {
-                    val appInfo = pm.getApplicationInfo(info.processName, 0)
-                    val appName = pm.getApplicationLabel(appInfo).toString()
-                    val icon = pm.getApplicationIcon(appInfo)
-                    val isSystem = appInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0
-                    info.copy(appName = appName, icon = icon, isSystemApp = isSystem)
-                } catch (e: PackageManager.NameNotFoundException) {
-                    // Not an app, keep defaults (isSystemApp=true is reasonable for native processes)
+                val appInfo = appInfoMap[info.processName]
+                if (appInfo != null) {
+                    try {
+                        val appName = pm.getApplicationLabel(appInfo).toString()
+                        val icon = pm.getApplicationIcon(appInfo)
+                        val isSystem = appInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0
+                        info.copy(appName = appName, icon = icon, isSystemApp = isSystem)
+                    } catch (e: Exception) {
+                        info
+                    }
+                } else {
                     info
-                } catch (e: Exception) {
-                     info
                 }
             })
 
-            process.waitFor()
+            p.waitFor()
         } catch (e: Exception) {
             e.printStackTrace()
         } finally {

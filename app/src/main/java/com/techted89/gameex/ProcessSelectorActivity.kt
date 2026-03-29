@@ -69,6 +69,7 @@ class ProcessSelectorActivity : AppCompatActivity() {
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
+            @Suppress("DEPRECATION")
             startActivityForResult(intent, 0)
         }
     }

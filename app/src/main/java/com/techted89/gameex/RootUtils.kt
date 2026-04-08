@@ -27,20 +27,66 @@ object RootUtils {
         }
     }
 
+    // [LEGACY/UNUSED]
+    // fun parsePsOutput(reader: BufferedReader): List<ProcessInfo> {
+    //     val processes = mutableListOf<ProcessInfo>()
+    //     var line: String? = reader.readLine()
+    //     while (line != null) {
+    //         // Typical ps output: USER PID ... NAME
+    //         val parts = line.trim().split(WHITESPACE_REGEX)
+    //         if (parts.size >= 9) {
+    //             // Assuming standard android ps output where PID is usually 2nd column
+    //             // and Name is last column.
+    //             val pidStr = parts[1]
+    //             val name = parts.last()
+    //             try {
+    //                 val pid = pidStr.toInt()
+    //                 // Default values for raw parsing
+    //                 processes.add(ProcessInfo(pid, name, name, null, true))
+    //             } catch (e: NumberFormatException) {
+    //                 // Ignore header or lines that don't match expected format
+    //             }
+    //         }
+    //         line = reader.readLine()
+    //     }
+    //     return processes
+    // }
+
     fun parsePsOutput(reader: BufferedReader): List<ProcessInfo> {
         val processes = mutableListOf<ProcessInfo>()
         var line: String? = reader.readLine()
         while (line != null) {
-            // Typical ps output: USER PID ... NAME
-            val parts = line.trim().split(WHITESPACE_REGEX)
-            if (parts.size >= 9) {
-                // Assuming standard android ps output where PID is usually 2nd column
-                // and Name is last column.
-                val pidStr = parts[1]
-                val name = parts.last()
+            val len = line.length
+            if (len == 0) {
+                line = reader.readLine()
+                continue
+            }
+
+            var i = 0
+            while (i < len && line[i] == ' ') i++
+
+            var colIndex = 0
+            var pidStart = -1
+            var pidEnd = -1
+            var nameStart = -1
+
+            while (i < len) {
+                if (colIndex == 1) pidStart = i
+                nameStart = i
+
+                while (i < len && line[i] != ' ') i++
+
+                if (colIndex == 1) pidEnd = i
+
+                while (i < len && line[i] == ' ') i++
+                colIndex++
+            }
+
+            if (pidStart != -1 && pidEnd != -1 && nameStart != -1 && colIndex >= 8) {
                 try {
+                    val pidStr = line.substring(pidStart, pidEnd)
                     val pid = pidStr.toInt()
-                    // Default values for raw parsing
+                    val name = line.substring(nameStart).trimEnd()
                     processes.add(ProcessInfo(pid, name, name, null, true))
                 } catch (e: NumberFormatException) {
                     // Ignore header or lines that don't match expected format

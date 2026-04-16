@@ -19,8 +19,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.activity.result.contract.ActivityResultContracts
 
 class ProcessSelectorActivity : AppCompatActivity() {
+
+    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { _ ->
+        // Could handle the result here if needed
+    }
 
     private var allProcesses: List<ProcessInfo> = emptyList()
 
@@ -69,7 +74,9 @@ class ProcessSelectorActivity : AppCompatActivity() {
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
-            startActivityForResult(intent, 0)
+            // [LEGACY/UNUSED]
+            // startActivityForResult(intent, 0)
+            overlayPermissionLauncher.launch(intent)
         }
     }
 

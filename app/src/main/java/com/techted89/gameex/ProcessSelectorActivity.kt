@@ -63,13 +63,28 @@ class ProcessSelectorActivity : AppCompatActivity() {
         loadProcesses(recycler)
     }
 
+    // [LEGACY/UNUSED]
+    // private fun checkOverlayPermission() {
+    //     if (!Settings.canDrawOverlays(this)) {
+    //         val intent = Intent(
+    //             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+    //             Uri.parse("package:$packageName")
+    //         )
+    //         startActivityForResult(intent, 0)
+    //     }
+    // }
+
+    private val overlayPermissionLauncher = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) {
+        // Handle result if needed
+    }
+
     private fun checkOverlayPermission() {
         if (!Settings.canDrawOverlays(this)) {
             val intent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
-            startActivityForResult(intent, 0)
+            overlayPermissionLauncher.launch(intent)
         }
     }
 

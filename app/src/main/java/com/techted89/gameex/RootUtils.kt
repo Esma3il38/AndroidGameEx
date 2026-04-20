@@ -7,7 +7,7 @@ import java.io.DataOutputStream
 import java.io.InputStreamReader
 
 object RootUtils {
-    private val WHITESPACE_REGEX = "\\s+".toRegex()
+    // [LEGACY/UNUSED] private val WHITESPACE_REGEX = "\\s+".toRegex()
 
     fun requestRoot(): Boolean {
         var process: Process? = null
@@ -27,25 +27,80 @@ object RootUtils {
         }
     }
 
+    // [LEGACY/UNUSED]
+    // fun parsePsOutput(reader: BufferedReader): List<ProcessInfo> {
+    //     val processes = mutableListOf<ProcessInfo>()
+    //     var line: String? = reader.readLine()
+    //     while (line != null) {
+    //         val parts = line.trim().split(WHITESPACE_REGEX)
+    //         if (parts.size >= 9) {
+    //             val pidStr = parts[1]
+    //             val name = parts.last()
+    //             try {
+    //                 val pid = pidStr.toInt()
+    //                 processes.add(ProcessInfo(pid, name, name, null, true))
+    //             } catch (e: NumberFormatException) {
+    //             }
+    //         }
+    //         line = reader.readLine()
+    //     }
+    //     return processes
+    // }
+
     fun parsePsOutput(reader: BufferedReader): List<ProcessInfo> {
         val processes = mutableListOf<ProcessInfo>()
         var line: String? = reader.readLine()
         while (line != null) {
-            // Typical ps output: USER PID ... NAME
-            val parts = line.trim().split(WHITESPACE_REGEX)
-            if (parts.size >= 9) {
-                // Assuming standard android ps output where PID is usually 2nd column
-                // and Name is last column.
-                val pidStr = parts[1]
-                val name = parts.last()
+            var end = line.length
+            while (end > 0 && line[end - 1].isWhitespace()) {
+                end--
+            }
+
+            var i = 0
+            while (i < end && line[i].isWhitespace()) {
+                i++
+            }
+
+            var colCount = 0
+            var inWord = false
+            var lastWordStart = i
+            var pidStr: String? = null
+
+            while (i < end) {
+                val c = line[i]
+                if (c.isWhitespace()) {
+                    if (inWord) {
+                        inWord = false
+                        if (colCount == 1) {
+                            pidStr = line.substring(lastWordStart, i)
+                        }
+                        colCount++
+                    }
+                } else {
+                    if (!inWord) {
+                        inWord = true
+                        lastWordStart = i
+                    }
+                }
+                i++
+            }
+
+            if (inWord) {
+                if (colCount == 1) {
+                    pidStr = line.substring(lastWordStart, end)
+                }
+                colCount++
+            }
+
+            if (colCount >= 9 && pidStr != null) {
                 try {
                     val pid = pidStr.toInt()
-                    // Default values for raw parsing
+                    val name = line.substring(lastWordStart, end)
                     processes.add(ProcessInfo(pid, name, name, null, true))
                 } catch (e: NumberFormatException) {
-                    // Ignore header or lines that don't match expected format
                 }
             }
+
             line = reader.readLine()
         }
         return processes

@@ -11,6 +11,7 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.Spinner
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -21,6 +22,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class ProcessSelectorActivity : AppCompatActivity() {
+
+    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        // Handle result if needed
+    }
 
     private var allProcesses: List<ProcessInfo> = emptyList()
 
@@ -69,7 +74,8 @@ class ProcessSelectorActivity : AppCompatActivity() {
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
-            startActivityForResult(intent, 0)
+            // [LEGACY/UNUSED] startActivityForResult(intent, 0)
+            overlayPermissionLauncher.launch(intent)
         }
     }
 

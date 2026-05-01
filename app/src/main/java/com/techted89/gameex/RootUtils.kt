@@ -31,6 +31,7 @@ object RootUtils {
         val processes = mutableListOf<ProcessInfo>()
         var line: String? = reader.readLine()
         while (line != null) {
+            /* [LEGACY/UNUSED]
             // Typical ps output: USER PID ... NAME
             val parts = line.trim().split(WHITESPACE_REGEX)
             if (parts.size >= 9) {
@@ -46,6 +47,49 @@ object RootUtils {
                     // Ignore header or lines that don't match expected format
                 }
             }
+            */
+            val trimmedLine = line.trimEnd()
+            val len = trimmedLine.length
+            var i = 0
+
+            // Skip leading whitespace
+            while (i < len && trimmedLine[i] <= ' ') i++
+
+            if (i < len) {
+                // Skip word 1: USER
+                while (i < len && trimmedLine[i] > ' ') i++
+                while (i < len && trimmedLine[i] <= ' ') i++
+
+                if (i < len) {
+                    // Word 2: PID
+                    val pidStart = i
+                    while (i < len && trimmedLine[i] > ' ') i++
+                    val pidEnd = i
+
+                    var wordCount = 2
+                    var lastWordStart = -1
+
+                    while (i < len) {
+                        while (i < len && trimmedLine[i] <= ' ') i++
+                        if (i < len) {
+                            wordCount++
+                            lastWordStart = i
+                            while (i < len && trimmedLine[i] > ' ') i++
+                        }
+                    }
+
+                    if (wordCount >= 9 && lastWordStart != -1) {
+                        val pidStr = trimmedLine.substring(pidStart, pidEnd)
+                        val name = trimmedLine.substring(lastWordStart, len)
+                        try {
+                            val pid = pidStr.toInt()
+                            processes.add(ProcessInfo(pid, name, name, null, true))
+                        } catch (e: NumberFormatException) {
+                            // Ignore header or lines that don't match expected format
+                        }
+                    }
+                }
+            }
             line = reader.readLine()
         }
         return processes
@@ -57,14 +101,15 @@ object RootUtils {
         var process: Process? = null
         try {
             process = Runtime.getRuntime().exec("su")
+            val p = process
 
-            DataOutputStream(process.outputStream).use { os ->
+            DataOutputStream(p.outputStream).use { os ->
                 os.writeBytes("ps -A\n")
                 os.writeBytes("exit\n")
                 os.flush()
             }
 
-            val rawProcesses = process.inputStream.bufferedReader().use { reader ->
+            val rawProcesses = p.inputStream.bufferedReader().use { reader ->
                 parsePsOutput(reader)
             }
 
@@ -85,7 +130,7 @@ object RootUtils {
                 }
             })
 
-            process.waitFor()
+            p.waitFor()
         } catch (e: Exception) {
             e.printStackTrace()
         } finally {

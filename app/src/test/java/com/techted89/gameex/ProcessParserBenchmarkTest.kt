@@ -20,6 +20,7 @@ class ProcessParserBenchmarkTest {
         // We can't easily warm up RootUtils without affecting static state (none here)
         // But let's warm up JVM a bit with dummy loops
         repeat(100) {
+            @Suppress("UNUSED_VARIABLE")
             val parts = psOutputLine.trim().split("\\s+".toRegex())
         }
 
@@ -28,6 +29,7 @@ class ProcessParserBenchmarkTest {
              val reader = BufferedReader(StringReader(hugeString))
              var line: String? = reader.readLine()
              while (line != null) {
+                @Suppress("UNUSED_VARIABLE")
                 val parts = line.trim().split("\\s+".toRegex())
                 if (parts.size >= 9) {
                      val pidStr = parts[1]

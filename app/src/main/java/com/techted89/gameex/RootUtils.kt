@@ -31,21 +31,54 @@ object RootUtils {
         val processes = mutableListOf<ProcessInfo>()
         var line: String? = reader.readLine()
         while (line != null) {
+            // [LEGACY/UNUSED]
             // Typical ps output: USER PID ... NAME
-            val parts = line.trim().split(WHITESPACE_REGEX)
-            if (parts.size >= 9) {
-                // Assuming standard android ps output where PID is usually 2nd column
-                // and Name is last column.
-                val pidStr = parts[1]
-                val name = parts.last()
-                try {
-                    val pid = pidStr.toInt()
-                    // Default values for raw parsing
-                    processes.add(ProcessInfo(pid, name, name, null, true))
-                } catch (e: NumberFormatException) {
-                    // Ignore header or lines that don't match expected format
+            // val parts = line.trim().split(WHITESPACE_REGEX)
+            // if (parts.size >= 9) {
+            //     // Assuming standard android ps output where PID is usually 2nd column
+            //     // and Name is last column.
+            //     val pidStr = parts[1]
+            //     val name = parts.last()
+            //     try {
+            //         val pid = pidStr.toInt()
+            //         // Default values for raw parsing
+            //         processes.add(ProcessInfo(pid, name, name, null, true))
+            //     } catch (e: NumberFormatException) {
+            //         // Ignore header or lines that don't match expected format
+            //     }
+            // }
+
+            val trimmedLine = line.trimEnd()
+            val len = trimmedLine.length
+            var i = 0
+
+            while (i < len && trimmedLine[i] <= ' ') i++
+
+            var wordCount = 0
+            var pid = -1
+            var lastWord = ""
+
+            while (i < len) {
+                val start = i
+                while (i < len && trimmedLine[i] > ' ') i++
+                lastWord = trimmedLine.substring(start, i)
+                wordCount++
+
+                if (wordCount == 2) {
+                    try {
+                        pid = lastWord.toInt()
+                    } catch (e: NumberFormatException) {
+                        // Ignore
+                    }
                 }
+
+                while (i < len && trimmedLine[i] <= ' ') i++
             }
+
+            if (wordCount >= 9 && pid != -1) {
+                processes.add(ProcessInfo(pid, lastWord, lastWord, null, true))
+            }
+
             line = reader.readLine()
         }
         return processes

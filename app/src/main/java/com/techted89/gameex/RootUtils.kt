@@ -31,17 +31,47 @@ object RootUtils {
         val processes = mutableListOf<ProcessInfo>()
         var line: String? = reader.readLine()
         while (line != null) {
-            // Typical ps output: USER PID ... NAME
-            val parts = line.trim().split(WHITESPACE_REGEX)
-            if (parts.size >= 9) {
-                // Assuming standard android ps output where PID is usually 2nd column
-                // and Name is last column.
-                val pidStr = parts[1]
-                val name = parts.last()
+            // [LEGACY/UNUSED]
+            // val parts = line.trim().split(WHITESPACE_REGEX)
+
+            var pidStr = ""
+            var nameStr = ""
+            var column = 0
+            var inSpace = true
+            var startIdx = 0
+
+            val trimmedLine = line.trimEnd()
+            var i = 0
+            while (i < trimmedLine.length) {
+                val c = trimmedLine[i]
+                if (c == ' ' || c == '\t') {
+                    if (!inSpace) {
+                        if (column == 1) {
+                            pidStr = trimmedLine.substring(startIdx, i)
+                        }
+                        column++
+                        inSpace = true
+                    }
+                } else {
+                    if (inSpace) {
+                        startIdx = i
+                        inSpace = false
+                    }
+                }
+                i++
+            }
+            if (!inSpace) {
+                if (column == 1) {
+                    pidStr = trimmedLine.substring(startIdx, i)
+                }
+                nameStr = trimmedLine.substring(startIdx, i)
+                column++
+            }
+
+            if (column >= 9) {
                 try {
                     val pid = pidStr.toInt()
-                    // Default values for raw parsing
-                    processes.add(ProcessInfo(pid, name, name, null, true))
+                    processes.add(ProcessInfo(pid, nameStr, nameStr, null, true))
                 } catch (e: NumberFormatException) {
                     // Ignore header or lines that don't match expected format
                 }

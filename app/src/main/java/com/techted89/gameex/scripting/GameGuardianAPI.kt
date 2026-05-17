@@ -38,7 +38,14 @@ object GameGuardianAPI {
      * Searches for a value with the specified type and flags.
      * Mapped to NativeScanner.searchMemoryString.
      */
-    fun searchNumber(text: String, type: Int, encrypted: Boolean, sign: Int, memoryFrom: Long, memoryTo: Long) {
+    fun searchNumber(
+        text: String,
+        @Suppress("UNUSED_PARAMETER") type: Int,
+        @Suppress("UNUSED_PARAMETER") encrypted: Boolean,
+        @Suppress("UNUSED_PARAMETER") sign: Int,
+        @Suppress("UNUSED_PARAMETER") memoryFrom: Long,
+        @Suppress("UNUSED_PARAMETER") memoryTo: Long
+    ) {
         // Construct query string based on parameters if needed
         // For now, we pass the raw text which might contain ranges etc.
         NativeScanner.searchMemoryString(targetPid, text)
@@ -47,7 +54,7 @@ object GameGuardianAPI {
     /**
      * Refines the search results.
      */
-    fun refineNumber(text: String, type: Int) {
+    fun refineNumber(text: String, @Suppress("UNUSED_PARAMETER") type: Int) {
         val intVal = text.toIntOrNull() ?: 0
         NativeScanner.filterMemory(targetPid, intVal)
     }
@@ -63,7 +70,7 @@ object GameGuardianAPI {
     /**
      * Edits all found results to the specified value.
      */
-    fun editAll(text: String, type: Int) {
+    fun editAll(@Suppress("UNUSED_PARAMETER") text: String, @Suppress("UNUSED_PARAMETER") type: Int) {
         // NativeScanner.writeMemoryLoop(...)
     }
 

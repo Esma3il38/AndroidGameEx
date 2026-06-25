@@ -32,10 +32,8 @@ class ProcessSelectorActivity : AppCompatActivity() {
 
     private var allProcesses: List<ProcessInfo> = emptyList()
 
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        // Result handled implicitly or via reloading UI if needed
+    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { _ ->
+        // Handle result if necessary
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -103,8 +101,7 @@ class ProcessSelectorActivity : AppCompatActivity() {
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
-            // [LEGACY/UNUSED]
-            // startActivityForResult(intent, 0)
+            // startActivityForResult(intent, 0) // [LEGACY/UNUSED]
             overlayPermissionLauncher.launch(intent)
         }
     }

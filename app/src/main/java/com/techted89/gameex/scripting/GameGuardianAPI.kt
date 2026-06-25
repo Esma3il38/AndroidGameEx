@@ -57,7 +57,10 @@ object GameGuardianAPI {
     /**
      * Refines the search results.
      */
-    fun refineNumber(text: String, @Suppress("UNUSED_PARAMETER") type: Int) {
+    fun refineNumber(
+        text: String,
+        @Suppress("UNUSED_PARAMETER") type: Int
+    ) {
         val intVal = text.toIntOrNull() ?: 0
         NativeScanner.filterMemory(targetPid, intVal)
     }
@@ -80,12 +83,7 @@ object GameGuardianAPI {
         // NativeScanner.writeMemoryLoop(...)
     }
 
-    fun dumpMemory(
-        from: Long,
-        to: Long,
-        dir: String,
-        @Suppress("UNUSED_PARAMETER") flags: Int? = null
-    ): Boolean {
+    fun dumpMemory(from: Long, to: Long, dir: String, @Suppress("UNUSED_PARAMETER") flags: Int? = null): Boolean {
         return NativeScanner.dumpMemory(targetPid, from, to, dir)
     }
 
@@ -150,7 +148,9 @@ object GameGuardianAPI {
         return true // Mock state
     }
 
-    fun setVisible(@Suppress("UNUSED_PARAMETER") visible: Boolean) {
+    fun setVisible(
+        @Suppress("UNUSED_PARAMETER") visible: Boolean
+    ) {
         // UI toggle callback needed
     }
 

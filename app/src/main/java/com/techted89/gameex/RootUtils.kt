@@ -59,45 +59,52 @@ object RootUtils {
         // Typical ps output: USER PID ... NAME
         // [LEGACY/UNUSED] val parts = line.trim().split(WHITESPACE_REGEX)
         while (line != null) {
-            // Fast manual character-by-character parser
-            var pidStart = -1
-            var pidEnd = -1
-            var spacesSeen = 0
+            // [LEGACY/UNUSED]
+            // Typical ps output: USER PID ... NAME
+            // val parts = line.trim().split(WHITESPACE_REGEX)
+            // if (parts.size >= 9) {
+            //     // Assuming standard android ps output where PID is usually 2nd column
+            //     // and Name is last column.
+            //     val pidStr = parts[1]
+            //     val name = parts.last()
+            //     try {
+            //         val pid = pidStr.toInt()
+            //         // Default values for raw parsing
+            //         processes.add(ProcessInfo(pid, name, name, null, true))
+            //     } catch (e: NumberFormatException) {
+            //         // Ignore header or lines that don't match expected format
+            //     }
+            // }
 
-            val trimmedLine = line.trim()
+            val trimmedLine = line.trimEnd()
             val len = trimmedLine.length
+            var i = 0
 
-            for (i in 0 until len) {
-                if (trimmedLine[i] == ' ') {
-                    if (i > 0 && trimmedLine[i - 1] != ' ') {
-                        spacesSeen++
-                    }
-                    continue
-                }
+            while (i < len && trimmedLine[i] <= ' ') i++
 
-                if (spacesSeen == 1) {
-                    if (pidStart == -1) pidStart = i
-                    pidEnd = i + 1
-                }
-            }
+            var wordCount = 0
+            var pid = -1
+            var lastWord = ""
 
-            if (pidStart != -1 && spacesSeen >= 8) {
-                val pidStr = trimmedLine.substring(pidStart, pidEnd)
-                var nameStart = len - 1
-                while (nameStart >= 0 && trimmedLine[nameStart] != ' ') {
-                    nameStart--
-                }
-                nameStart++
+            while (i < len) {
+                val start = i
+                while (i < len && trimmedLine[i] > ' ') i++
+                lastWord = trimmedLine.substring(start, i)
+                wordCount++
 
-                if (nameStart < len) {
-                    val name = trimmedLine.substring(nameStart)
+                if (wordCount == 2) {
                     try {
-                        val pid = pidStr.toInt()
-                        processes.add(ProcessInfo(pid, name, name, null, true))
+                        pid = lastWord.toInt()
                     } catch (e: NumberFormatException) {
                         // Ignore
                     }
                 }
+
+                while (i < len && trimmedLine[i] <= ' ') i++
+            }
+
+            if (wordCount >= 9 && pid != -1) {
+                processes.add(ProcessInfo(pid, lastWord, lastWord, null, true))
             }
 
             line = reader.readLine()

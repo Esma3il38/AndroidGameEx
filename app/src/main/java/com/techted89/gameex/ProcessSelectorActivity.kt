@@ -28,52 +28,16 @@ import androidx.activity.result.contract.ActivityResultContracts
 
 class ProcessSelectorActivity : AppCompatActivity() {
 
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { _ ->
-        if (!Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, "Overlay permission is required!", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        // Handle result if needed
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { _ ->
-        // Handle result if needed
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (!Settings.canDrawOverlays(this)) {
-            // Optional: Handle the case where the user didn't grant the permission
-        }
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        // Optionally handle result
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        // Handle result if needed
-    }
-
-    private val overlayPermissionLauncher: ActivityResultLauncher<Intent> = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        // Result code is unreliable, check Settings.canDrawOverlays explicitly
-        if (!Settings.canDrawOverlays(this)) {
-            // Permission denied, handle accordingly (e.g., show a toast or exit)
-        }
-    }
+    private var allProcesses: List<ProcessInfo> = emptyList()
+    private lateinit var overlayPermissionLauncher: ActivityResultLauncher<Intent>
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            if (!Settings.canDrawOverlays(this)) {
+                // Handle permission denied if needed
+            }
+        }
+
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_process_selector)
 
@@ -124,6 +88,7 @@ class ProcessSelectorActivity : AppCompatActivity() {
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
+            // [LEGACY/UNUSED] startActivityForResult(intent, 0)
             overlayPermissionLauncher.launch(intent)
         }
     }

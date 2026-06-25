@@ -29,51 +29,71 @@ object RootUtils {
 
     fun parsePsOutput(reader: BufferedReader): List<ProcessInfo> {
         val processes = mutableListOf<ProcessInfo>()
-        var line: String? = reader.readLine()
+
+        // [LEGACY/UNUSED]
+        // var line: String? = reader.readLine()
+        // while (line != null) {
+        //     // Typical ps output: USER PID ... NAME
+        //     val parts = line.trim().split(WHITESPACE_REGEX)
+        //     if (parts.size >= 9) {
+        //         // Assuming standard android ps output where PID is usually 2nd column
+        //         // and Name is last column.
+        //         val pidStr = parts[1]
+        //         val name = parts.last()
+        //         try {
+        //             val pid = pidStr.toInt()
+        //             // Default values for raw parsing
+        //             processes.add(ProcessInfo(pid, name, name, null, true))
+        //         } catch (e: NumberFormatException) {
+        //             // Ignore header or lines that don't match expected format
+        //         }
+        //     }
+        //     line = reader.readLine()
+        // }
+
+        var line = reader.readLine()
         while (line != null) {
-            // [LEGACY/UNUSED]
-            // Typical ps output: USER PID ... NAME
-            // Use manual string parsing instead of regex to optimize performance
-            val trimmedLine = line.trim()
-            if (trimmedLine.isNotEmpty()) {
-                var spaceCount = 0
-                var pidStart = -1
-                var pidEnd = -1
-                var nameStart = -1
+            var startIndex = 0
+            val len = line.length
 
-                for (i in trimmedLine.indices) {
-                    val c = trimmedLine[i]
-                    val isSpace = c == ' ' || c == '\t'
+            // Skip leading spaces
+            while (startIndex < len && line[startIndex].isWhitespace()) {
+                startIndex++
+            }
 
-                    if (isSpace) {
-                        if (i > 0 && trimmedLine[i - 1] != ' ' && trimmedLine[i - 1] != '\t') {
-                            spaceCount++
-                            if (spaceCount == 2) {
-                                pidEnd = i
-                            }
+            var wordCount = 0
+            var pid = -1
+            var i = startIndex
+
+            while (i < len && wordCount < 8) { // We need PID (2nd column) and then skip to the end for the name
+                if (line[i].isWhitespace()) {
+                    if (wordCount == 1) { // Process PID (2nd column)
+                        val pidStr = line.substring(startIndex, i)
+                        try {
+                            pid = pidStr.toInt()
+                        } catch (e: NumberFormatException) {
+                            pid = -1 // Ignore if invalid
                         }
-                    } else if (i > 0 && (trimmedLine[i - 1] == ' ' || trimmedLine[i - 1] == '\t')) {
-                        if (spaceCount == 1) {
-                            pidStart = i
-                        }
-                        nameStart = i
                     }
+                    wordCount++
+                    while (i < len && line[i].isWhitespace()) {
+                        i++
+                    }
+                    startIndex = i
+                } else {
+                    i++
                 }
+            }
 
-                if (spaceCount >= 8 && pidStart != -1 && pidEnd != -1 && pidStart < pidEnd && nameStart != -1) {
-                    val pidStr = trimmedLine.substring(pidStart, pidEnd)
-                    val name = trimmedLine.substring(nameStart)
-                    try {
-                        val pid = pidStr.toInt()
-                        processes.add(ProcessInfo(pid, name, name, null, true))
-                    } catch (e: NumberFormatException) {
-                        // Ignore header or lines that don't match expected format
-                    }
-                }
+            if (pid != -1 && i < len) {
+                // The remaining part is the name
+                val name = line.substring(startIndex).trimEnd()
+                processes.add(ProcessInfo(pid, name, name, null, true))
             }
 
             line = reader.readLine()
         }
+
         return processes
     }
 

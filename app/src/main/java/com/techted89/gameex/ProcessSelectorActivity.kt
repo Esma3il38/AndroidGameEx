@@ -34,11 +34,9 @@ class ProcessSelectorActivity : AppCompatActivity() {
 
     private var allProcesses: List<ProcessInfo> = emptyList()
 
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
+    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (!Settings.canDrawOverlays(this)) {
-            // Permission denied logic could go here
+            // Permission not granted, could show a message here
         }
     }
 
@@ -87,7 +85,6 @@ class ProcessSelectorActivity : AppCompatActivity() {
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
-            // [LEGACY/UNUSED] startActivityForResult(intent, 0)
             overlayPermissionLauncher.launch(intent)
         }
     }

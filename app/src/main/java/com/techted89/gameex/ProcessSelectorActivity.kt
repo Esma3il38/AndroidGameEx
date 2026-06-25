@@ -4,19 +4,13 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
-import android.text.Editable
-import android.text.TextWatcher
-import android.view.View
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
-import android.widget.EditText
-import android.widget.Spinner
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.floatingactionbutton.FloatingActionButton
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import androidx.activity.result.contract.ActivityResultContracts
 import kotlinx.coroutines.launch
@@ -25,17 +19,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 
 class ProcessSelectorActivity : AppCompatActivity() {
 
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (Settings.canDrawOverlays(this)) {
-            val recycler = findViewById<RecyclerView>(R.id.recycler_processes)
-            loadProcesses(recycler)
+    private val overlayPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (!Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "Overlay permission is required", Toast.LENGTH_SHORT).show()
         }
-    }
-
-    private var allProcesses: List<ProcessInfo> = emptyList()
-
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        // We can re-check the permission here if needed, but for now we just return
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -88,7 +77,7 @@ class ProcessSelectorActivity : AppCompatActivity() {
     }
 
     private fun loadProcesses(recycler: RecyclerView) {
-        CoroutineScope(Dispatchers.IO).launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             // Need root to see all processes ideally, but basic ps might work for now
             // Or requesting root first
             RootUtils.requestRoot()

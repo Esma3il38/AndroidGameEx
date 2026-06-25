@@ -262,7 +262,22 @@ class FloatingOverlayService : Service() {
                     tabEditor.setBackgroundResource(R.drawable.tab_indicator_active)
                     tabEditor.setTextColor(hackerGreenColor)
                     viewEditor.visibility = View.VISIBLE
-                    // Refresh modules list logic...
+
+                    // Refresh modules list when entering Editor
+                    serviceScope.launch(Dispatchers.IO) {
+                        val modules = try {
+                            NativeScanner.getLoadedModules(targetPid).toList()
+                        } catch (e: Exception) {
+                            listOf("Error loading modules: ${e.message}")
+                        }
+                        withContext(Dispatchers.Main) {
+                            // Reusing MemoryResultAdapter for simplicity since it just shows two texts
+                            // In real app, create ModuleAdapter
+                            val moduleResults = modules.map { MemoryResult(0, it) }
+                            val modulesAdapter = MemoryResultAdapter(moduleResults)
+                            rvModulesList.adapter = modulesAdapter
+                        }
+                    }
                 }
                 "SCRIPT" -> {
                     tabScript.setBackgroundResource(R.drawable.tab_indicator_active)
@@ -409,6 +424,77 @@ class FloatingOverlayService : Service() {
 
         btnNextScan.setOnClickListener {
             performScan(isNext = true)
+        }
+
+        btnHook.setOnClickListener {
+             Toast.makeText(this, "Hooking functions...", Toast.LENGTH_SHORT).show()
+        }
+
+        btnExecuteScript.setOnClickListener {
+            val script = etScriptInput.text.toString()
+            val output = GameGuardianAPI.executeScript(script)
+            tvScriptOutput.text = "Output:\n$output"
+        }
+
+        btnDisassemble.setOnClickListener {
+            val filesDir = getExternalFilesDir(null)?.absolutePath ?: return@setOnClickListener
+            val path = "$filesDir/script.lua"
+            val outPath = "$filesDir/script.asm"
+
+            Toast.makeText(this, "Disassembling...", Toast.LENGTH_SHORT).show()
+
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    // Do not overwrite script.lua with input text, as disassembly requires a binary file.
+                    // We assume script.lua already exists (e.g. from assembly or loaded externally).
+                    if (!File(path).exists()) {
+                        withContext(Dispatchers.Main) {
+                            tvScriptOutput.text = "Error: Input file $path does not exist. Assemble a script first."
+                        }
+                        return@launch
+                    }
+
+                    NativeScanner.disassembleScript(path, outPath)
+
+                    val disassembledContent = if (File(outPath).exists()) File(outPath).readText() else "No output"
+
+                    withContext(Dispatchers.Main) {
+                        tvScriptOutput.text = "Disassembled to $outPath:\n$disassembledContent"
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        tvScriptOutput.text = "Error: ${e.message}"
+                    }
+                }
+            }
+        }
+
+        btnAssemble.setOnClickListener {
+            val filesDir = getExternalFilesDir(null)?.absolutePath ?: return@setOnClickListener
+            val path = "$filesDir/script.asm"
+            val outPath = "$filesDir/script.lua"
+            val scriptContent = etScriptInput.text.toString()
+
+            Toast.makeText(this, "Assembling...", Toast.LENGTH_SHORT).show()
+
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    // Write current script input to the .asm file before assembling
+                    File(path).writeText(scriptContent)
+
+                    NativeScanner.assembleScript(path, outPath)
+
+                    val assembledSize = if (File(outPath).exists()) File(outPath).length() else 0
+
+                    withContext(Dispatchers.Main) {
+                        tvScriptOutput.text = "Assembled to $outPath (Binary content size: $assembledSize bytes)"
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        tvScriptOutput.text = "Error: ${e.message}"
+                    }
+                }
+            }
         }
 
         etSearchValue.setOnEditorActionListener { _, actionId, _ ->

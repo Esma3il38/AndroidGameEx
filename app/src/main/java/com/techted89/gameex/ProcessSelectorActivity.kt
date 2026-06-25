@@ -1,6 +1,7 @@
 package com.techted89.gameex
 
 import android.content.Intent
+import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
@@ -89,10 +90,8 @@ class ProcessSelectorActivity : AppCompatActivity() {
         loadProcesses(recycler)
     }
 
-    private val overlayPermissionLauncher = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult().let { contract ->
-        registerForActivityResult(contract) {
-            // Callback can check Settings.canDrawOverlays(this) here if needed
-        }
+    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        // Handle result if needed
     }
 
     private fun checkOverlayPermission() {
@@ -101,6 +100,7 @@ class ProcessSelectorActivity : AppCompatActivity() {
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
+            // [LEGACY/UNUSED] startActivityForResult(intent, 0)
             overlayPermissionLauncher.launch(intent)
         }
     }

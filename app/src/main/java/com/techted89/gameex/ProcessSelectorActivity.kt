@@ -35,9 +35,7 @@ class ProcessSelectorActivity : AppCompatActivity() {
     private var allProcesses: List<ProcessInfo> = emptyList()
 
     private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (!Settings.canDrawOverlays(this)) {
-            // Permission not granted, could show a message here
-        }
+        // We can re-check the permission here if needed, but for now we just return
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

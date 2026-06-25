@@ -141,6 +141,15 @@ class ProcessSelectorActivity : AppCompatActivity() {
         // Result handled if needed, for overlay permissions checking Settings.canDrawOverlays again is usually enough
     }
 
+    private val overlayPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        // We check canDrawOverlays directly instead of result code as the result code is unreliable for this action.
+        if (Settings.canDrawOverlays(this)) {
+            // Permission granted, optionally reload or proceed
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             if (!Settings.canDrawOverlays(this)) {

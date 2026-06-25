@@ -12,6 +12,7 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.Spinner
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -63,6 +64,15 @@ class ProcessSelectorActivity : AppCompatActivity() {
         // Handle result if needed
     }
 
+    private val overlayPermissionLauncher: ActivityResultLauncher<Intent> = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        // Result code is unreliable, check Settings.canDrawOverlays explicitly
+        if (!Settings.canDrawOverlays(this)) {
+            // Permission denied, handle accordingly (e.g., show a toast or exit)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_process_selector)
@@ -108,8 +118,6 @@ class ProcessSelectorActivity : AppCompatActivity() {
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
-            // [LEGACY/UNUSED]
-            // startActivityForResult(intent, 0)
             overlayPermissionLauncher.launch(intent)
         }
     }

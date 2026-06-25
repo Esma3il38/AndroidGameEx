@@ -41,7 +41,14 @@ object GameGuardianAPI {
      * Searches for a value with the specified type and flags.
      * Mapped to NativeScanner.searchMemory.
      */
-    fun searchNumber(text: String, @Suppress("UNUSED_PARAMETER") type: Int, @Suppress("UNUSED_PARAMETER") encrypted: Boolean, @Suppress("UNUSED_PARAMETER") sign: Int, @Suppress("UNUSED_PARAMETER") memoryFrom: Long, @Suppress("UNUSED_PARAMETER") memoryTo: Long) {
+    fun searchNumber(
+        text: String,
+        @Suppress("UNUSED_PARAMETER") type: Int,
+        @Suppress("UNUSED_PARAMETER") encrypted: Boolean,
+        @Suppress("UNUSED_PARAMETER") sign: Int,
+        @Suppress("UNUSED_PARAMETER") memoryFrom: Long,
+        @Suppress("UNUSED_PARAMETER") memoryTo: Long
+    ) {
         // Construct query string based on parameters if needed
         // For now, we pass the raw text which might contain ranges etc.
         NativeScanner.searchMemoryString(targetPid, text)
@@ -86,7 +93,12 @@ object GameGuardianAPI {
         return SystemUtils.getTargetPackage(targetPid)
     }
 
-    fun searchPointer(@Suppress("UNUSED_PARAMETER") maxOffset: Int, @Suppress("UNUSED_PARAMETER") memoryFrom: Long = 0, @Suppress("UNUSED_PARAMETER") memoryTo: Long = -1, @Suppress("UNUSED_PARAMETER") limit: Long = 0) {
+    fun searchPointer(
+        @Suppress("UNUSED_PARAMETER") maxOffset: Int,
+        @Suppress("UNUSED_PARAMETER") memoryFrom: Long = 0,
+        @Suppress("UNUSED_PARAMETER") memoryTo: Long = -1,
+        @Suppress("UNUSED_PARAMETER") limit: Long = 0
+    ) {
         // NativeScanner.searchPointer(...)
     }
 
@@ -102,7 +114,12 @@ object GameGuardianAPI {
         // Callback to UI needed
     }
 
-    fun alert(@Suppress("UNUSED_PARAMETER") text: String, @Suppress("UNUSED_PARAMETER") positive: String = "ok", @Suppress("UNUSED_PARAMETER") negative: String? = null, @Suppress("UNUSED_PARAMETER") neutral: String? = null): Int {
+    fun alert(
+        @Suppress("UNUSED_PARAMETER") text: String,
+        @Suppress("UNUSED_PARAMETER") positive: String = "ok",
+        @Suppress("UNUSED_PARAMETER") negative: String? = null,
+        @Suppress("UNUSED_PARAMETER") neutral: String? = null
+    ): Int {
         // Blocking dialog logic stub
         return 1
     }

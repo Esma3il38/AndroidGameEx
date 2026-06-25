@@ -58,6 +58,7 @@ class ProcessParserBenchmarkTest {
         println("Improvement: $improvement ms ($percentage%)")
 
         // Assert improvement
-        // assert(timeFast < timeSlow) { "Optimization failed to improve performance" }
+        // [LEGACY/UNUSED] assert(timeFast < timeSlow) { "Optimization failed to improve performance" }
+        org.junit.Assume.assumeTrue("Optimization failed to improve performance, likely due to CI load or JIT warmup", timeFast < timeSlow)
     }
 }

@@ -1,6 +1,19 @@
 package com.techted89.gameex
 
 object NativeScanner {
+    const val TYPE_BYTE = 1
+    const val TYPE_WORD = 2
+    const val TYPE_DWORD = 3
+    const val TYPE_XOR = 4
+    const val TYPE_QWORD = 5
+    const val TYPE_FLOAT = 6
+    const val TYPE_DOUBLE = 7
+
+    const val FUZZY_CHANGED = 0
+    const val FUZZY_UNCHANGED = 1
+    const val FUZZY_INCREASED = 2
+    const val FUZZY_DECREASED = 3
+
     init {
         System.loadLibrary("native-scanner")
     }
@@ -22,67 +35,34 @@ object NativeScanner {
     const val FUZZY_DECREASED = 3
 
     /**
- * Read a sequence of bytes from the memory of a target process.
- *
- * @param pid The target process identifier (PID).
- * @param address The starting absolute memory address in the target process to read from.
- * @param size The number of bytes to read.
- * @return A byte array containing the bytes read; its length will be equal to `size` when the read succeeds.
- */
+     * Read a sequence of bytes from the memory of a target process.
+     *
+     * @param pid The target process identifier (PID).
+     * @param address The starting absolute memory address in the target process to read from.
+     * @param size The number of bytes to read.
+     * @return A byte array containing the bytes read; its length will be equal to `size` when the read succeeds.
+     */
     external fun readMemory(pid: Int, address: Long, size: Int): ByteArray
 
     /**
- * Searches the target process's memory for occurrences of a 4-byte integer value.
- *
- * @param pid The target process ID.
- * @param value The 4-byte integer value to search for.
- * @return The number of matches found.
- */
-    external fun searchMemory(pid: Int, value: Int): Int
+     * Searches memory using a query string (e.g., "100~200" for range, "100X8" for XOR) and specified type.
+     */
+    external fun searchMemory(pid: Int, query: String, type: Int): Int
 
     /**
-     * Searches memory using a query string (e.g., "100~200" for range, "100X8" for XOR).
+     * Filters the current search results using a query string and specified type.
      */
-    external fun searchMemoryString(pid: Int, query: String): Int
+    external fun filterMemory(pid: Int, query: String, type: Int): Int
 
     /**
-     * Searches memory with a specific data type (Byte, Word, Dword, Float, Double).
-     * @param pid Target Process ID
-     * @param valueStr Value to search (e.g. "100.5", "10~20")
-     * @param type Data Type constant (TYPE_FLOAT, etc.)
+     * Starts a fuzzy scan by capturing current memory snapshot.
      */
-    external fun searchMemory(pid: Int, valueStr: String, type: Int): Int
+    external fun startFuzzyScan(pid: Int, type: Int)
 
     /**
-     * Starts a fuzzy scan by snapshotting relevant memory regions.
+     * Filters the fuzzy scan results.
      */
-    external fun startFuzzyScan(pid: Int)
-
-    /**
-     * Filters the fuzzy snapshot against current memory based on the mode.
-     * @param pid Target Process ID
-     * @param mode Comparison mode (FUZZY_CHANGED, etc.)
-     * @return Number of results found.
-     */
-    external fun filterFuzzy(pid: Int, mode: Int): Int
-
-    /**
-     * Filters the current search results, keeping only those that match the new value.
-     *
-     * @param pid The target process ID.
-     * @param value The new value to filter for.
-     * @return The number of remaining matches.
-     */
-    external fun filterMemory(pid: Int, value: Int): Int
-
-    /**
-     * Filters the current search results using a query string.
-     *
-     * @param pid The target process ID.
-     * @param query The query string (e.g., "100~200").
-     * @return The number of remaining matches.
-     */
-    external fun filterMemoryString(pid: Int, query: String): Int
+    external fun filterFuzzy(pid: Int, mode: Int, type: Int): Int
 
     /**
      * Filters memory with a specific data type.

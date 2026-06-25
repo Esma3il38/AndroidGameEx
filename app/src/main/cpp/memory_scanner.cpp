@@ -11,6 +11,7 @@
 #include <mutex>
 #include <algorithm>
 #include <cinttypes>
+#include <cmath>
 #include <iostream>
 #include <set>
 #include <map>
@@ -20,11 +21,6 @@
 #include <errno.h>
 #include <cstdio>
 #include <inttypes.h>
-
-// Forward Declaration for JNI compatibility to resolve circular dependency
-extern "C" JNIEXPORT jint JNICALL Java_com_techted89_gameex_NativeScanner_searchMemoryString(JNIEnv* env, jobject thiz, jint pid, jstring queryString);
-extern "C" JNIEXPORT jint JNICALL Java_com_techted89_gameex_NativeScanner_searchMemory__ILjava_lang_String_2I(JNIEnv* env, jobject thiz, jint pid, jstring valueStr, jint type);
-extern "C" JNIEXPORT jint JNICALL Java_com_techted89_gameex_NativeScanner_filterMemory__ILjava_lang_String_2I(JNIEnv* env, jobject thiz, jint pid, jstring valueStr, jint type);
 
 // Define the structure of a memory region
 struct MemoryRegion {
@@ -53,6 +49,26 @@ std::mutex fuzzyMutex;
 std::map<jlong, std::vector<uint8_t>> originalBytesMap;
 std::mutex originalBytesMutex;
 
+enum DataType {
+    TYPE_BYTE = 1,
+    TYPE_WORD = 2,
+    TYPE_DWORD = 3,
+    TYPE_XOR = 4,
+    TYPE_QWORD = 5,
+    TYPE_FLOAT = 6,
+    TYPE_DOUBLE = 7
+};
+
+// For fuzzy search snapshot
+struct SnapshotRegion {
+    uintptr_t startAddress;
+    std::vector<uint8_t> data;
+};
+
+// Global fuzzy snapshot storage
+std::vector<SnapshotRegion> fuzzySnapshots;
+std::mutex fuzzyMutex;
+
 enum SearchType {
     EXACT,
     RANGE,
@@ -80,19 +96,15 @@ enum FuzzyMode {
 
 struct SearchCondition {
     SearchType type = EXACT;
-    DataType dataType = TYPE_DWORD;
-    // Store both representations to avoid union aliasing issues with TYPE_AUTO
-    double d_val1 = 0;
-    uint64_t i_val1 = 0;
-
-    double d_val2 = 0;
-    uint64_t i_val2 = 0; // For range
-
+    int64_t iVal1 = 0;
+    int64_t iVal2 = 0;
+    double fVal1 = 0.0;
+    double fVal2 = 0.0;
     int xorKey = 0; // For encrypted
 };
 
-// Simple parser for "100~150", "100X8", "100", "123.45"
-SearchCondition parseSearchQuery(const std::string& query, DataType forcedType) {
+// Simple parser for "100~150", "100X8", "100"
+SearchCondition parseSearchQuery(const std::string& query, int type) {
     SearchCondition cond;
     cond.dataType = forcedType;
     bool isFloat = (forcedType == TYPE_FLOAT || forcedType == TYPE_DOUBLE);
@@ -102,19 +114,17 @@ SearchCondition parseSearchQuery(const std::string& query, DataType forcedType) 
     size_t tildePos = query.find('~');
     if (tildePos != std::string::npos) {
         cond.type = RANGE;
-        try {
-            std::string s1 = query.substr(0, tildePos);
-            std::string s2 = query.substr(tildePos + 1);
-
-            if (isFloat || isAuto) {
-                cond.d_val1 = std::stod(s1);
-                cond.d_val2 = std::stod(s2);
-            }
-            if (!isFloat) { // Int or Auto
-                cond.i_val1 = std::stoull(s1);
-                cond.i_val2 = std::stoull(s2);
-            }
-        } catch (...) { cond.type = EXACT; }
+        if (type == TYPE_FLOAT || type == TYPE_DOUBLE) {
+            try {
+                cond.fVal1 = std::stod(query.substr(0, tildePos));
+                cond.fVal2 = std::stod(query.substr(tildePos + 1));
+            } catch (...) { cond.type = EXACT; }
+        } else {
+            try {
+                cond.iVal1 = std::stoll(query.substr(0, tildePos));
+                cond.iVal2 = std::stoll(query.substr(tildePos + 1));
+            } catch (...) { cond.type = EXACT; }
+        }
         return cond;
     }
 
@@ -123,12 +133,7 @@ SearchCondition parseSearchQuery(const std::string& query, DataType forcedType) 
     if (xPos != std::string::npos) {
         cond.type = ENCRYPTED_XOR;
         try {
-            std::string s1 = query.substr(0, xPos);
-            if (isFloat) {
-                cond.d_val1 = std::stod(s1);
-            } else {
-                cond.i_val1 = std::stoull(s1);
-            }
+            cond.iVal1 = std::stoll(query.substr(0, xPos));
             cond.xorKey = std::stoi(query.substr(xPos + 1));
         } catch (...) { cond.type = EXACT; }
         return cond;
@@ -136,16 +141,14 @@ SearchCondition parseSearchQuery(const std::string& query, DataType forcedType) 
 
     // Default Exact
     cond.type = EXACT;
-    try {
-        if (isFloat || isAuto) {
-            cond.d_val1 = std::stod(query);
-        }
-        if (!isFloat) { // Int or Auto
-             cond.i_val1 = std::stoull(query);
-        }
-    } catch (...) {
-        if (isFloat) cond.d_val1 = 0.0;
-        else cond.i_val1 = 0;
+    if (type == TYPE_FLOAT || type == TYPE_DOUBLE) {
+        try {
+            cond.fVal1 = std::stod(query);
+        } catch (...) { cond.fVal1 = 0.0; }
+    } else {
+        try {
+            cond.iVal1 = std::stoll(query);
+        } catch (...) { cond.iVal1 = 0; }
     }
     return cond;
 }
@@ -325,28 +328,16 @@ bool ptraceRead(int pid, uintptr_t addr, void* dest, size_t size) {
     return true;
 }
 
-// Template function to check value match
-template <typename T>
-bool checkValue(T val, const SearchCondition& cond) {
-    bool isFloat = std::is_floating_point<T>::value;
-    switch (cond.type) {
-        case EXACT:
-            if (isFloat)
-                return std::abs(val - (T)cond.d_val1) < 0.0001;
-            else
-                return val == (T)cond.i_val1;
-        case RANGE:
-            if (isFloat)
-                return val >= (T)cond.d_val1 && val <= (T)cond.d_val2;
-            else
-                return val >= (T)cond.i_val1 && val <= (T)cond.i_val2;
-        case ENCRYPTED_XOR:
-            // Only valid for integral types
-            if (std::is_integral<T>::value)
-                 return ((long long)val ^ cond.xorKey) == (long long)cond.i_val1;
-            return false;
-        default:
-            return false;
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_searchMemory(
+        JNIEnv* env,
+        jobject /* this */,
+        jint pid,
+        jstring queryString,
+        jint type) {
+    if (queryString == nullptr) {
+        return 0;
     }
 }
 
@@ -357,12 +348,12 @@ bool checkValue(T val, const SearchCondition& cond) {
     std::string query(queryCStr);
     env->ReleaseStringUTFChars(queryString, queryCStr);
 
-    SearchCondition cond = parseSearchQuery(query);
+    SearchCondition cond = parseSearchQuery(query, type);
 
     std::vector<jlong> localResults;
     std::vector<MemoryRegion> regions = readProcMaps(pid);
 
-    const size_t CHUNK_SIZE = 4096;
+    const size_t CHUNK_SIZE = 65536;
     std::vector<uint8_t> buffer(CHUNK_SIZE);
     int matchCount = 0;
     if (!append) results.clear();
@@ -380,47 +371,51 @@ bool checkValue(T val, const SearchCondition& cond) {
         default: typeSize = 4; alignment = 4; break;
     }
 
+    int dataSize = 4;
+    if (type == TYPE_BYTE) dataSize = 1;
+    else if (type == TYPE_WORD) dataSize = 2;
+    else if (type == TYPE_DWORD || type == TYPE_FLOAT) dataSize = 4;
+    else if (type == TYPE_QWORD || type == TYPE_DOUBLE) dataSize = 8;
+
     for (const auto& region : regions) {
         uintptr_t currentAddr = region.startAddress;
         while (currentAddr < region.endAddress) {
-            uintptr_t remaining = region.endAddress - currentAddr;
-            size_t readSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : (size_t)remaining;
+            size_t readSize = std::min((size_t)(region.endAddress - currentAddr), CHUNK_SIZE);
 
             struct iovec local_iov = {buffer.data(), readSize};
             struct iovec remote_iov = {(void*)currentAddr, readSize};
 
             ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
 
-            if (bytesRead >= (ssize_t)typeSize) {
+            if (bytesRead >= dataSize) {
                 size_t limit = (size_t)bytesRead;
-                for (size_t i = 0; i + typeSize <= limit; i += alignment) {
+                limit -= (limit % dataSize);
+
+                for (size_t i = 0; i < limit; i += dataSize) {
                     bool match = false;
-                    switch (cond.dataType) {
-                        case TYPE_BYTE: {
-                            int8_t val = (int8_t)buffer[i];
-                            match = checkValue(val, cond);
-                        } break;
-                        case TYPE_WORD: {
-                            int16_t val; std::memcpy(&val, &buffer[i], 2);
-                            match = checkValue(val, cond);
-                        } break;
-                        case TYPE_DWORD: {
-                            int32_t val; std::memcpy(&val, &buffer[i], 4);
-                            match = checkValue(val, cond);
-                        } break;
-                        case TYPE_QWORD: {
-                            int64_t val; std::memcpy(&val, &buffer[i], 8);
-                            match = checkValue(val, cond);
-                        } break;
-                        case TYPE_FLOAT: {
-                            float val; std::memcpy(&val, &buffer[i], 4);
-                            match = checkValue(val, cond);
-                        } break;
-                        case TYPE_DOUBLE: {
-                            double val; std::memcpy(&val, &buffer[i], 8);
-                            match = checkValue(val, cond);
-                        } break;
-                        default: break;
+
+                    if (type == TYPE_FLOAT) {
+                        float val;
+                        memcpy(&val, &buffer[i], 4);
+                        if (cond.type == EXACT) match = (std::abs(val - (float)cond.fVal1) < 0.001f);
+                        else if (cond.type == RANGE) match = (val >= (float)cond.fVal1 && val <= (float)cond.fVal2);
+                    }
+                    else if (type == TYPE_DOUBLE) {
+                        double val;
+                        memcpy(&val, &buffer[i], 8);
+                        if (cond.type == EXACT) match = (std::abs(val - cond.fVal1) < 0.000001);
+                        else if (cond.type == RANGE) match = (val >= cond.fVal1 && val <= cond.fVal2);
+                    }
+                    else {
+                        int64_t val = 0;
+                        if (type == TYPE_BYTE) val = (int8_t)buffer[i];
+                        else if (type == TYPE_WORD) { int16_t v; memcpy(&v, &buffer[i], 2); val = v; }
+                        else if (type == TYPE_DWORD) { int32_t v; memcpy(&v, &buffer[i], 4); val = v; }
+                        else if (type == TYPE_QWORD) { memcpy(&val, &buffer[i], 8); }
+
+                        if (cond.type == EXACT) match = (val == cond.iVal1);
+                        else if (cond.type == RANGE) match = (val >= cond.iVal1 && val <= cond.iVal2);
+                        else if (cond.type == ENCRYPTED_XOR) match = ((val ^ cond.xorKey) == cond.iVal1);
                     }
 
                     if (match) {
@@ -473,31 +468,9 @@ Java_com_techted89_gameex_NativeScanner_searchMemory__ILjava_lang_String_2I(
     return count;
 }
 
-// Legacy support: defaults to DWORD
-extern "C"
-JNIEXPORT jint JNICALL
-Java_com_techted89_gameex_NativeScanner_searchMemoryString(
-        JNIEnv* env,
-        jobject thiz,
-        jint pid,
-        jstring queryString) {
-    return Java_com_techted89_gameex_NativeScanner_searchMemory__ILjava_lang_String_2I(env, thiz, pid, queryString, TYPE_DWORD);
-}
-
-// Legacy support: searchMemory(int)
-extern "C"
-JNIEXPORT jint JNICALL
-Java_com_techted89_gameex_NativeScanner_searchMemory__II(
-        JNIEnv* env,
-        jobject thiz,
-        jint pid,
-        jint valueToFind) {
-    std::string query = std::to_string(valueToFind);
-    jstring queryString = env->NewStringUTF(query.c_str());
-    return Java_com_techted89_gameex_NativeScanner_searchMemory__ILjava_lang_String_2I(env, thiz, pid, queryString, TYPE_DWORD);
-}
-
-extern "C"
+extern "C" /**
+ * @brief Install a hook at the target address.
+ */
 JNIEXPORT jboolean JNICALL
 Java_com_techted89_gameex_NativeScanner_installHook(
         JNIEnv* env,
@@ -674,45 +647,36 @@ Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
         JNIEnv* env,
         jobject,
         jint pid,
-        jstring dumpPath) {
-    if (dumpPath) {
-        const char* pathC = env->GetStringUTFChars(dumpPath, nullptr);
-        env->ReleaseStringUTFChars(dumpPath, pathC);
-    }
+        jint type) {
 
-    std::vector<MemoryRegion> regions = readProcMaps(pid);
     std::vector<SnapshotRegion> localSnapshots;
-    const size_t CHUNK_SIZE = 16 * 1024;
+    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
+    const size_t CHUNK_SIZE = 65536; // 64KB chunks
+    std::vector<uint8_t> buffer(CHUNK_SIZE);
 
     for (const auto& region : regions) {
-        size_t size = region.endAddress - region.startAddress;
-        if (size == 0) continue;
+        uintptr_t currentAddr = region.startAddress;
+        while (currentAddr < region.endAddress) {
+            size_t readSize = std::min((size_t)(region.endAddress - currentAddr), CHUNK_SIZE);
+            struct iovec local_iov = {buffer.data(), readSize};
+            struct iovec remote_iov = {(void*)currentAddr, readSize};
 
-        SnapshotRegion snapshot;
-        snapshot.startAddress = region.startAddress;
-        snapshot.data.resize(size);
+            ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
 
-        size_t bytesReadTotal = 0;
-        while(bytesReadTotal < size) {
-            size_t toRead = std::min(CHUNK_SIZE, size - bytesReadTotal);
-            struct iovec local_iov = {snapshot.data.data() + bytesReadTotal, toRead};
-            struct iovec remote_iov = {(void*)(region.startAddress + bytesReadTotal), toRead};
-
-            ssize_t res = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
-            if (res <= 0) break;
-            bytesReadTotal += res;
-        }
-
-        if (bytesReadTotal > 0) {
-            snapshot.data.resize(bytesReadTotal);
-            localSnapshots.push_back(std::move(snapshot));
+            if (bytesRead > 0) {
+                SnapshotRegion snap;
+                snap.startAddress = currentAddr;
+                snap.data.assign(buffer.begin(), buffer.begin() + bytesRead);
+                localSnapshots.push_back(snap);
+            }
+            currentAddr += readSize;
         }
     }
 
-    std::sort(localSnapshots.begin(), localSnapshots.end(),
-        [](const SnapshotRegion& a, const SnapshotRegion& b) {
-            return a.startAddress < b.startAddress;
-        });
+    // Sort snapshots to allow binary search
+    std::sort(localSnapshots.begin(), localSnapshots.end(), [](const SnapshotRegion& a, const SnapshotRegion& b) {
+        return a.startAddress < b.startAddress;
+    });
 
     {
         std::lock_guard<std::mutex> lock(fuzzyMutex);
@@ -723,86 +687,8 @@ Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
         std::lock_guard<std::mutex> lock(searchResultsMutex);
         searchResults.clear();
     }
-    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Started. Snapshots: %zu", fuzzySnapshots.size());
-}
 
-int filterFuzzyInitialScan(int pid, int mode, std::vector<jlong>& newResults) {
-    int matchCount = 0;
-    std::lock_guard<std::mutex> fuzzyLock(fuzzyMutex);
-
-    for (const auto& snap : fuzzySnapshots) {
-         size_t len = snap.data.size();
-         for (size_t offset = 0; offset + 4 <= len; offset += 4) {
-             int oldVal;
-             memcpy(&oldVal, &snap.data[offset], 4);
-
-             int currentVal;
-             struct iovec local = {&currentVal, 4};
-             struct iovec remote = {(void*)(snap.startAddress + offset), 4};
-             if (process_vm_readv(pid, &local, 1, &remote, 1, 0) == 4) {
-                 bool match = false;
-                 switch(mode) {
-                     case 0: match = (currentVal != oldVal); break; // CHANGED
-                     case 1: match = (currentVal == oldVal); break; // UNCHANGED
-                     case 2: match = (currentVal > oldVal); break;  // INCREASED
-                     case 3: match = (currentVal < oldVal); break;  // DECREASED
-                 }
-                 if (match) {
-                     newResults.push_back((jlong)(snap.startAddress + offset));
-                     matchCount++;
-                     if (matchCount >= 100000) return matchCount;
-                 }
-             }
-         }
-    }
-    return matchCount;
-}
-
-int filterFuzzySubsequentScan(int pid, int mode) {
-    std::lock_guard<std::mutex> fuzzyLock(fuzzyMutex);
-    std::lock_guard<std::mutex> resLock(searchResultsMutex);
-
-    auto it = std::remove_if(searchResults.begin(), searchResults.end(), [&](jlong addr) {
-         auto ub = std::upper_bound(fuzzySnapshots.begin(), fuzzySnapshots.end(), (uintptr_t)addr,
-             [](uintptr_t a, const SnapshotRegion& r) { return a < r.startAddress; });
-
-         SnapshotRegion* foundRegion = nullptr;
-         if (ub != fuzzySnapshots.begin()) {
-             SnapshotRegion* candidate = const_cast<SnapshotRegion*>(&(*(--ub)));
-             if (addr >= candidate->startAddress && addr < candidate->startAddress + candidate->data.size()) {
-                 foundRegion = candidate;
-             }
-         }
-
-         if (!foundRegion) return true;
-
-         size_t offset = addr - foundRegion->startAddress;
-         if (offset + 4 > foundRegion->data.size()) return true;
-
-         int oldVal;
-         memcpy(&oldVal, &foundRegion->data[offset], 4);
-
-         int currentVal;
-         struct iovec local = {&currentVal, 4};
-         struct iovec remote = {(void*)(uintptr_t)addr, 4};
-         if (process_vm_readv(pid, &local, 1, &remote, 1, 0) != 4) return true;
-
-         bool match = false;
-         switch(mode) {
-             case 0: match = (currentVal != oldVal); break;
-             case 1: match = (currentVal == oldVal); break;
-             case 2: match = (currentVal > oldVal); break;
-             case 3: match = (currentVal < oldVal); break;
-         }
-
-         if (match) {
-             memcpy(&foundRegion->data[offset], &currentVal, 4);
-         }
-
-         return !match;
-    });
-    searchResults.erase(it, searchResults.end());
-    return (int)searchResults.size();
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Baseline Captured: %zu regions", fuzzySnapshots.size());
 }
 
 extern "C"
@@ -811,26 +697,96 @@ Java_com_techted89_gameex_NativeScanner_filterFuzzy(
         JNIEnv* env,
         jobject,
         jint pid,
-        jint mode) {
+        jint mode,
+        jint type) {
 
-    // 0=CHANGED, 1=UNCHANGED, 2=INCREASED, 3=DECREASED
+    std::lock_guard<std::mutex> lock(fuzzyMutex);
+    if (fuzzySnapshots.empty()) return 0;
 
     std::vector<jlong> newResults;
-    bool isFirstFilter = false;
+    const size_t CHUNK_SIZE = 65536;
+    std::vector<uint8_t> buffer(CHUNK_SIZE);
+
+    int dataSize = 4;
+    if (type == TYPE_BYTE) dataSize = 1;
+    else if (type == TYPE_WORD) dataSize = 2;
+    else if (type == TYPE_DWORD || type == TYPE_FLOAT) dataSize = 4;
+    else if (type == TYPE_QWORD || type == TYPE_DOUBLE) dataSize = 8;
+
+    for (auto& snap : fuzzySnapshots) {
+        size_t regionSize = snap.data.size();
+        struct iovec local_iov = {buffer.data(), regionSize};
+        struct iovec remote_iov = {(void*)snap.startAddress, regionSize};
+
+        ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+        if (bytesRead <= 0) continue;
+
+        size_t limit = (size_t)bytesRead;
+        limit -= (limit % dataSize);
+
+        for (size_t i = 0; i < limit; i += dataSize) {
+            bool match = false;
+
+            if (type == TYPE_FLOAT) {
+                float oldVal, newVal;
+                memcpy(&oldVal, &snap.data[i], 4);
+                memcpy(&newVal, &buffer[i], 4);
+                if (mode == 0) match = (oldVal != newVal);
+                else if (mode == 1) match = (oldVal == newVal);
+                else if (mode == 2) match = (newVal > oldVal);
+                else if (mode == 3) match = (newVal < oldVal);
+            } else if (type == TYPE_DOUBLE) {
+                double oldVal, newVal;
+                memcpy(&oldVal, &snap.data[i], 8);
+                memcpy(&newVal, &buffer[i], 8);
+                if (mode == 0) match = (oldVal != newVal);
+                else if (mode == 1) match = (oldVal == newVal);
+                else if (mode == 2) match = (newVal > oldVal);
+                else if (mode == 3) match = (newVal < oldVal);
+            } else {
+                int64_t oldVal = 0, newVal = 0;
+
+                if (type == TYPE_BYTE) {
+                    oldVal = (int8_t)snap.data[i];
+                    newVal = (int8_t)buffer[i];
+                } else if (type == TYPE_WORD) {
+                    int16_t o, n;
+                    memcpy(&o, &snap.data[i], 2);
+                    memcpy(&n, &buffer[i], 2);
+                    oldVal = o; newVal = n;
+                } else if (type == TYPE_DWORD) {
+                    int32_t o, n;
+                    memcpy(&o, &snap.data[i], 4);
+                    memcpy(&n, &buffer[i], 4);
+                    oldVal = o; newVal = n;
+                } else if (type == TYPE_QWORD) {
+                    memcpy(&oldVal, &snap.data[i], 8);
+                    memcpy(&newVal, &buffer[i], 8);
+                }
+
+                if (mode == 0) match = (oldVal != newVal);
+                else if (mode == 1) match = (oldVal == newVal);
+                else if (mode == 2) match = (newVal > oldVal);
+                else if (mode == 3) match = (newVal < oldVal);
+            }
+
+            if (match) {
+                 newResults.push_back((jlong)(snap.startAddress + i));
+                 // Update snapshot with new value
+                 memcpy(&snap.data[i], &buffer[i], dataSize);
+
+                 if (newResults.size() >= 100000) goto filter_done;
+            }
+        }
+    }
+
+filter_done:
     {
         std::lock_guard<std::mutex> lock(searchResultsMutex);
-        isFirstFilter = searchResults.empty();
-    }
-
-    if (isFirstFilter) {
-        filterFuzzyInitialScan(pid, mode, newResults);
-        std::lock_guard<std::mutex> lock(searchResultsMutex);
         searchResults = std::move(newResults);
-    } else {
-        filterFuzzySubsequentScan(pid, mode);
     }
 
-    std::lock_guard<std::mutex> lock(searchResultsMutex);
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Filter Complete. Found: %zu", searchResults.size());
     return (jint)searchResults.size();
 }
 
@@ -869,6 +825,69 @@ Java_com_techted89_gameex_NativeScanner_readMemory(
     jbyteArray result = env->NewByteArray(bytes);
     env->SetByteArrayRegion(result, 0, bytes, (jbyte*)buffer.data());
     return result;
+}
+
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_filterMemory(
+        JNIEnv* env,
+        jobject /* this */,
+        jint pid,
+        jstring queryString,
+        jint type) {
+    if (queryString == nullptr) return 0;
+    const char* queryCStr = env->GetStringUTFChars(queryString, nullptr);
+    if (queryCStr == nullptr) return 0;
+    std::string query(queryCStr);
+    env->ReleaseStringUTFChars(queryString, queryCStr);
+
+    SearchCondition cond = parseSearchQuery(query, type);
+    std::lock_guard<std::mutex> lock(searchResultsMutex);
+
+    int dataSize = 4;
+    if (type == TYPE_BYTE) dataSize = 1;
+    else if (type == TYPE_WORD) dataSize = 2;
+    else if (type == TYPE_DWORD || type == TYPE_FLOAT) dataSize = 4;
+    else if (type == TYPE_QWORD || type == TYPE_DOUBLE) dataSize = 8;
+
+    auto it = std::remove_if(searchResults.begin(), searchResults.end(), [&](jlong addr) {
+        uint8_t temp[8];
+        struct iovec local_iov = {temp, (size_t)dataSize};
+        struct iovec remote_iov = {(void*)(uintptr_t)addr, (size_t)dataSize};
+
+        ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+
+        if (bytesRead != dataSize) {
+            return true; // Remove if read fails
+        }
+
+        bool match = false;
+        if (type == TYPE_FLOAT) {
+             float val; memcpy(&val, temp, 4);
+             if (cond.type == EXACT) match = (std::abs(val - (float)cond.fVal1) < 0.001f);
+             else if (cond.type == RANGE) match = (val >= (float)cond.fVal1 && val <= (float)cond.fVal2);
+        } else if (type == TYPE_DOUBLE) {
+             double val; memcpy(&val, temp, 8);
+             if (cond.type == EXACT) match = (std::abs(val - cond.fVal1) < 0.000001);
+             else if (cond.type == RANGE) match = (val >= cond.fVal1 && val <= cond.fVal2);
+        } else {
+             int64_t val = 0;
+             if (type == TYPE_BYTE) val = (int8_t)temp[0];
+             else if (type == TYPE_WORD) { int16_t v; memcpy(&v, temp, 2); val = v; }
+             else if (type == TYPE_DWORD) { int32_t v; memcpy(&v, temp, 4); val = v; }
+             else if (type == TYPE_QWORD) { memcpy(&val, temp, 8); }
+
+             if (cond.type == EXACT) match = (val == cond.iVal1);
+             else if (cond.type == RANGE) match = (val >= cond.iVal1 && val <= cond.iVal2);
+             else if (cond.type == ENCRYPTED_XOR) match = ((val ^ cond.xorKey) == cond.iVal1);
+        }
+        return !match;
+    });
+
+    searchResults.erase(it, searchResults.end());
+
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Filter Complete. Remaining: %zu", searchResults.size());
+    return (jint)searchResults.size();
 }
 
 extern "C"

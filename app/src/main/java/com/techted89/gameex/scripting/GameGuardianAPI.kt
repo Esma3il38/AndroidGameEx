@@ -39,20 +39,36 @@ object GameGuardianAPI {
 
     /**
      * Searches for a value with the specified type and flags.
-     * Mapped to NativeScanner.searchMemoryString.
+     * Mapped to NativeScanner.searchMemory.
      */
-    fun searchNumber(text: String, @Suppress("UNUSED_PARAMETER") type: Int, @Suppress("UNUSED_PARAMETER") encrypted: Boolean, @Suppress("UNUSED_PARAMETER") sign: Int, @Suppress("UNUSED_PARAMETER") memoryFrom: Long, @Suppress("UNUSED_PARAMETER") memoryTo: Long) {
-        // Construct query string based on parameters if needed
-        // For now, we pass the raw text which might contain ranges etc.
-        NativeScanner.searchMemoryString(targetPid, text)
+    fun searchNumber(text: String, type: Int, encrypted: Boolean, sign: Int, memoryFrom: Long, memoryTo: Long) {
+        // Map GameGuardianAPI types to NativeScanner types
+        val nativeType = when(type) {
+            TYPE_FLOAT -> NativeScanner.TYPE_FLOAT
+            TYPE_DOUBLE -> NativeScanner.TYPE_DOUBLE
+            TYPE_BYTE -> NativeScanner.TYPE_BYTE
+            TYPE_WORD -> NativeScanner.TYPE_WORD
+            TYPE_QWORD -> NativeScanner.TYPE_QWORD
+            TYPE_XOR -> NativeScanner.TYPE_XOR
+            else -> NativeScanner.TYPE_DWORD
+        }
+        NativeScanner.searchMemory(targetPid, text, nativeType)
     }
 
     /**
      * Refines the search results.
      */
-    fun refineNumber(text: String, @Suppress("UNUSED_PARAMETER") type: Int) {
-        val intVal = text.toIntOrNull() ?: 0
-        NativeScanner.filterMemory(targetPid, intVal)
+    fun refineNumber(text: String, type: Int) {
+        val nativeType = when(type) {
+            TYPE_FLOAT -> NativeScanner.TYPE_FLOAT
+            TYPE_DOUBLE -> NativeScanner.TYPE_DOUBLE
+            TYPE_BYTE -> NativeScanner.TYPE_BYTE
+            TYPE_WORD -> NativeScanner.TYPE_WORD
+            TYPE_QWORD -> NativeScanner.TYPE_QWORD
+            TYPE_XOR -> NativeScanner.TYPE_XOR
+            else -> NativeScanner.TYPE_DWORD
+        }
+        NativeScanner.filterMemory(targetPid, text, nativeType)
     }
 
     /**

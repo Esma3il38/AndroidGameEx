@@ -66,15 +66,8 @@ class FloatingOverlayService : Service() {
             .setContentText("Attached to $targetAppName (PID: $targetPid)")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build())
-        */
-        // Ensure we run as Foreground to prevent killing
-        val notification = NotificationCompat.Builder(this, "overlay_channel")
-            .setContentTitle("Memory Editor Active")
-            .setContentText("Attached to $targetAppName (PID: $targetPid)")
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
@@ -235,10 +228,11 @@ class FloatingOverlayService : Service() {
         // Editor/Script Mode setup omitted for brevity...
         val rvModulesList = viewEditor.findViewById<RecyclerView>(R.id.rv_modules_list)
         rvModulesList.layoutManager = LinearLayoutManager(this)
-        @Suppress("UNUSED_VARIABLE")
-        val etScriptInput = viewScript.findViewById<EditText>(R.id.et_script_input)
-        @Suppress("UNUSED_VARIABLE")
-        val tvScriptOutput = viewScript.findViewById<android.widget.TextView>(R.id.tv_script_output)
+        val moduleAdapter = MemoryResultAdapter()
+        rvModulesList.adapter = moduleAdapter
+
+        // [LEGACY/UNUSED] val etScriptInput = viewScript.findViewById<EditText>(R.id.et_script_input)
+        // [LEGACY/UNUSED] val tvScriptOutput = viewScript.findViewById<android.widget.TextView>(R.id.tv_script_output)
 
         // Initial State
         layoutEmptyState.visibility = View.VISIBLE

@@ -19,8 +19,11 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.cancel
@@ -69,6 +72,14 @@ class ProcessSelectorActivity : AppCompatActivity() {
     ) {
         // We can optionally verify the result here, but returning to the app
         // is enough to proceed or we check again.
+    }
+
+    private val activityScope = CoroutineScope(Dispatchers.Main + Job())
+
+    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (!Settings.canDrawOverlays(this)) {
+            // Permission still not granted
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -125,18 +136,22 @@ class ProcessSelectorActivity : AppCompatActivity() {
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
+            // [LEGACY/UNUSED] startActivityForResult(intent, 0)
             overlayPermissionLauncher.launch(intent)
         }
     }
 
     private fun loadProcesses(recycler: RecyclerView) {
-        activityScope.launch {
-            val processes = withContext(Dispatchers.IO) {
-                // Need root to see all processes ideally, but basic ps might work for now
-                // Or requesting root first
-                RootUtils.requestRoot()
-                // Pass context to enrich process info
-                RootUtils.getRunningProcesses(this@ProcessSelectorActivity)
+        activityScope.launch(Dispatchers.IO) {
+            // Need root to see all processes ideally, but basic ps might work for now
+            // Or requesting root first
+            RootUtils.requestRoot()
+            // Pass context to enrich process info
+            val processes = RootUtils.getRunningProcesses(this@ProcessSelectorActivity)
+
+            withContext(Dispatchers.Main) {
+                allProcesses = processes
+                filterProcesses(recycler)
             }
 
             allProcesses = processes
@@ -187,5 +202,10 @@ class ProcessSelectorActivity : AppCompatActivity() {
         startService(intent)
         // Optionally finish() or minimize app
         moveTaskToBack(true)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        activityScope.cancel()
     }
 }

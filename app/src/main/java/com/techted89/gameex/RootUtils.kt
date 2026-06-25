@@ -78,82 +78,44 @@ object RootUtils {
 
         var line = reader.readLine()
         while (line != null) {
-            var pid = -1
-            var name = ""
-            var colIndex = 0
+            // [LEGACY/UNUSED]
+            // val parts = line.trim().split(WHITESPACE_REGEX)
+
+            var pidStr = ""
+            var nameStr = ""
+            var column = 0
+            var inSpace = true
+            var startIdx = 0
+
+            val trimmedLine = line.trimEnd()
             var i = 0
-            val len = line.length
-
-            // Skip leading whitespaces
-            while (i < len && line[i] == ' ') i++
-
-            var wordStart = i
-
-            while (i <= len) {
-                val isSpace = i == len || line[i] == ' '
-                if (isSpace) {
-                    if (wordStart < i) {
-                        if (colIndex == 1) {
-                            try {
-                                pid = line.substring(wordStart, i).toInt()
-                            } catch (e: NumberFormatException) {
-                                pid = -1
-                            }
+            while (i < trimmedLine.length) {
+                val c = trimmedLine[i]
+                if (c == ' ' || c == '\t') {
+                    if (!inSpace) {
+                        if (column == 1) {
+                            pidStr = trimmedLine.substring(startIdx, i)
                         }
-                        name = line.substring(wordStart, i).trimEnd()
-                        colIndex++
+                        column++
+                        inSpace = true
                     }
-                    wordStart = i + 1
+                } else {
+                    if (inSpace) {
+                        startIdx = i
+                        inSpace = false
+                    }
                 }
                 i++
             }
-
-            if (colIndex >= 9 && pid != -1) {
-                processes.add(ProcessInfo(pid, name, name, null, true))
-            }
-            */
-            // FAST MANUAL PARSING
-            var pidStr = ""
-            var nameStr = ""
-            var spaceCount = 0
-            var inWord = false
-            var currentWordStart = 0
-
-            val len = line.length
-            for (i in 0 until len) {
-                val c = line[i]
-                if (c.isWhitespace()) {
-                    if (inWord) {
-                        inWord = false
-                        if (spaceCount == 1) { // 2nd word is PID
-                            pidStr = line.substring(currentWordStart, i)
-                        }
-                        spaceCount++
-                    }
-                } else {
-                    if (!inWord) {
-                        inWord = true
-                        currentWordStart = i
-                    }
+            if (!inSpace) {
+                if (column == 1) {
+                    pidStr = trimmedLine.substring(startIdx, i)
                 }
-            }
-            if (inWord) {
-                if (spaceCount == 1) {
-                    pidStr = line.substring(currentWordStart, len)
-                }
-                nameStr = line.substring(currentWordStart, len)
-                spaceCount++
-            } else if (spaceCount > 0) {
-                val trimmedLine = line.trimEnd()
-                val lastWordIdx = trimmedLine.lastIndexOf(' ')
-                if (lastWordIdx != -1) {
-                    nameStr = trimmedLine.substring(lastWordIdx + 1)
-                } else {
-                    nameStr = trimmedLine
-                }
+                nameStr = trimmedLine.substring(startIdx, i)
+                column++
             }
 
-            if (spaceCount >= 9 && pidStr.isNotEmpty() && nameStr.isNotEmpty()) {
+            if (column >= 9) {
                 try {
                     val pid = pidStr.toInt()
                     processes.add(ProcessInfo(pid, nameStr, nameStr, null, true))

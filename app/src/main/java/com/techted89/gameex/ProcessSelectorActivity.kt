@@ -154,7 +154,7 @@ class ProcessSelectorActivity : AppCompatActivity() {
     }
 
     private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        // Handle result if needed
+        // Handle result if necessary
     }
 
     private fun checkOverlayPermission() {

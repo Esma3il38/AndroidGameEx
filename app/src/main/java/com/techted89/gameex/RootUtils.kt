@@ -7,27 +7,6 @@ import java.io.DataOutputStream
 import java.io.InputStreamReader
 
 object RootUtils {
-    // [LEGACY/UNUSED]
-    // private val WHITESPACE_REGEX = "\\s+".toRegex()
-
-    // [LEGACY/UNUSED]
-    // fun requestRoot(): Boolean {
-    //     var process: Process? = null
-    //     return try {
-    //         process = Runtime.getRuntime().exec("su")
-    //         DataOutputStream(process.outputStream).use { os ->
-    //             os.writeBytes("echo root_access_check\n")
-    //             os.writeBytes("exit\n")
-    //             os.flush()
-    //         }
-    //         process.waitFor()
-    //         process.exitValue() == 0
-    //     } catch (e: Exception) {
-    //         false
-    //     } finally {
-    //         process?.destroy()
-    //     }
-    // }
 
     fun requestRoot(): Boolean {
         var process: Process? = null
@@ -99,21 +78,38 @@ object RootUtils {
 
         var line = reader.readLine()
         while (line != null) {
-            /* [LEGACY/UNUSED]
-            // Typical ps output: USER PID ... NAME
-            val parts = line.trim().split(WHITESPACE_REGEX)
-            if (parts.size >= 9) {
-                // Assuming standard android ps output where PID is usually 2nd column
-                // and Name is last column.
-                val pidStr = parts[1]
-                val name = parts.last()
-                try {
-                    val pid = pidStr.toInt()
-                    // Default values for raw parsing
-                    processes.add(ProcessInfo(pid, name, name, null, true))
-                } catch (e: NumberFormatException) {
-                    // Ignore header or lines that don't match expected format
+            var pid = -1
+            var name = ""
+            var colIndex = 0
+            var i = 0
+            val len = line.length
+
+            // Skip leading whitespaces
+            while (i < len && line[i] == ' ') i++
+
+            var wordStart = i
+
+            while (i <= len) {
+                val isSpace = i == len || line[i] == ' '
+                if (isSpace) {
+                    if (wordStart < i) {
+                        if (colIndex == 1) {
+                            try {
+                                pid = line.substring(wordStart, i).toInt()
+                            } catch (e: NumberFormatException) {
+                                pid = -1
+                            }
+                        }
+                        name = line.substring(wordStart, i).trimEnd()
+                        colIndex++
+                    }
+                    wordStart = i + 1
                 }
+                i++
+            }
+
+            if (colIndex >= 9 && pid != -1) {
+                processes.add(ProcessInfo(pid, name, name, null, true))
             }
             */
             // FAST MANUAL PARSING

@@ -78,47 +78,38 @@ object RootUtils {
 
         var line = reader.readLine()
         while (line != null) {
-            // [LEGACY/UNUSED]
-            // val parts = line.trim().split(WHITESPACE_REGEX)
+            val len = line.length
+            if (len == 0) {
+                line = reader.readLine()
+                continue
+            }
 
-            var pidStr = ""
-            var nameStr = ""
-            var column = 0
-            var inSpace = true
-            var startIdx = 0
-
-            val trimmedLine = line.trimEnd()
             var i = 0
-            while (i < trimmedLine.length) {
-                val c = trimmedLine[i]
-                if (c == ' ' || c == '\t') {
-                    if (!inSpace) {
-                        if (column == 1) {
-                            pidStr = trimmedLine.substring(startIdx, i)
-                        }
-                        column++
-                        inSpace = true
-                    }
-                } else {
-                    if (inSpace) {
-                        startIdx = i
-                        inSpace = false
-                    }
-                }
-                i++
-            }
-            if (!inSpace) {
-                if (column == 1) {
-                    pidStr = trimmedLine.substring(startIdx, i)
-                }
-                nameStr = trimmedLine.substring(startIdx, i)
-                column++
+            while (i < len && line[i] == ' ') i++
+
+            var colIndex = 0
+            var pidStart = -1
+            var pidEnd = -1
+            var nameStart = -1
+
+            while (i < len) {
+                if (colIndex == 1) pidStart = i
+                nameStart = i
+
+                while (i < len && line[i] != ' ') i++
+
+                if (colIndex == 1) pidEnd = i
+
+                while (i < len && line[i] == ' ') i++
+                colIndex++
             }
 
-            if (column >= 9) {
+            if (pidStart != -1 && pidEnd != -1 && nameStart != -1 && colIndex >= 8) {
                 try {
+                    val pidStr = line.substring(pidStart, pidEnd)
                     val pid = pidStr.toInt()
-                    processes.add(ProcessInfo(pid, nameStr, nameStr, null, true))
+                    val name = line.substring(nameStart).trimEnd()
+                    processes.add(ProcessInfo(pid, name, name, null, true))
                 } catch (e: NumberFormatException) {
                     // Ignore header or lines that don't match expected format
                 }

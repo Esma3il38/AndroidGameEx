@@ -20,10 +20,9 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.cancel
 
 class ProcessSelectorActivity : AppCompatActivity() {
 
@@ -36,6 +35,15 @@ class ProcessSelectorActivity : AppCompatActivity() {
     }
 
     private var allProcesses: List<ProcessInfo> = emptyList()
+    private val activityScope = CoroutineScope(Dispatchers.Main + Job())
+
+    private val overlayPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        if (!Settings.canDrawOverlays(this)) {
+            // Permission not granted, handle accordingly (e.g., finish or show warning)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -93,31 +101,56 @@ class ProcessSelectorActivity : AppCompatActivity() {
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
-            /* [LEGACY/UNUSED]
-            startActivityForResult(intent, 0)
-            */
             overlayPermissionLauncher.launch(intent)
         }
     }
 
     private fun loadProcesses(recycler: RecyclerView) {
-        activityScope.launch(Dispatchers.IO) {
-            // Need root to see all processes ideally, but basic ps might work for now
-            // Or requesting root first
-            RootUtils.requestRoot()
-            // Pass context to enrich process info
-            val processes = RootUtils.getRunningProcesses(this@ProcessSelectorActivity)
-
-            withContext(Dispatchers.Main) {
-                allProcesses = processes
-                filterProcesses(recycler)
+        activityScope.launch {
+            val processes = withContext(Dispatchers.IO) {
+                // Need root to see all processes ideally, but basic ps might work for now
+                // Or requesting root first
+                RootUtils.requestRoot()
+                // Pass context to enrich process info
+                RootUtils.getRunningProcesses(this@ProcessSelectorActivity)
             }
+
+            allProcesses = processes
+            filterProcesses(recycler)
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         activityScope.cancel()
+    }
+
+    private fun filterProcesses(recycler: RecyclerView) {
+        val etSearch = findViewById<EditText>(R.id.et_search_process)
+        val spinnerFilter = findViewById<Spinner>(R.id.spinner_filter)
+
+        val query = etSearch.text.toString().trim()
+        val filterType = spinnerFilter.selectedItem?.toString() ?: "All"
+
+        val filtered = allProcesses.filter { process ->
+            val matchesName = process.appName.contains(query, ignoreCase = true) ||
+                              process.processName.contains(query, ignoreCase = true)
+
+            val matchesType = when (filterType) {
+                "System Apps" -> process.isSystemApp
+                "User Apps" -> !process.isSystemApp
+                "Hooks" -> false // Placeholder filter for requested feature
+                else -> true
+            }
+            matchesName && matchesType
+        }
+
+        // Sorting: User apps first, then alphabetical by App Name
+        val sorted = filtered.sortedWith(compareBy({ it.isSystemApp }, { it.appName.lowercase() }))
+
+        recycler.adapter = ProcessAdapter(sorted) { process ->
+            launchOverlayService(process)
+        }
     }
 
     private fun launchOverlayService(process: ProcessInfo) {

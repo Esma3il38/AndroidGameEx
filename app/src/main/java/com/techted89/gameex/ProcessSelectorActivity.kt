@@ -64,6 +64,13 @@ class ProcessSelectorActivity : AppCompatActivity() {
         }
     }
 
+    private val overlayPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        // We can optionally verify the result here, but returning to the app
+        // is enough to proceed or we check again.
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             if (!Settings.canDrawOverlays(this)) {

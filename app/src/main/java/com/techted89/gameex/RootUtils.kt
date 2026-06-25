@@ -54,36 +54,53 @@ object RootUtils {
         // Typical ps output: USER PID ... NAME
         // [LEGACY/UNUSED] val parts = line.trim().split(WHITESPACE_REGEX)
         while (line != null) {
-            val len = line.length
-            var col = 0
-            var inSpace = true
-            var pidStart = -1
-            var pidEnd = -1
-            var nameStart = -1
+            // [LEGACY/UNUSED]
+            // val parts = line.trim().split(WHITESPACE_REGEX)
+
+            // Fast manual character-by-character parser
+            val trimmedLine = line.trimEnd()
+            val len = trimmedLine.length
+
+            var wordCount = 0
+            var inWord = false
+
+            var pidStr = ""
+            var currentWordStart = -1
+            var lastWordStart = -1
 
             for (i in 0 until len) {
-                val c = line[i]
-                val isSpace = c <= ' '
-                if (inSpace && !isSpace) {
-                    // Transition to word
-                    col++
-                    inSpace = false
-                    if (col == 2) {
-                        pidStart = i
-                    }
-                    // Name is the last column, we track every word start
-                    // and consider it nameStart until we reach the end of line
-                    if (col >= 9) {
-                        if (nameStart == -1) {
-                            nameStart = i
+                val c = trimmedLine[i]
+                if (c == ' ' || c == '\t') {
+                    if (inWord) {
+                        if (wordCount == 1) {
+                            pidStr = trimmedLine.substring(currentWordStart, i)
                         }
+                        wordCount++
+                        inWord = false
                     }
-                } else if (!inSpace && isSpace) {
-                    // Transition to space
-                    inSpace = true
-                    if (col == 2 && pidEnd == -1) {
-                        pidEnd = i
+                } else {
+                    if (!inWord) {
+                        inWord = true
+                        currentWordStart = i
+                        lastWordStart = i
                     }
+                }
+            }
+
+            if (inWord) {
+                if (wordCount == 1) {
+                    pidStr = trimmedLine.substring(currentWordStart, len)
+                }
+                wordCount++
+            }
+
+            if (wordCount >= 9) {
+                val name = trimmedLine.substring(lastWordStart, len)
+                try {
+                    val pid = pidStr.toInt()
+                    processes.add(ProcessInfo(pid, name, name, null, true))
+                } catch (e: NumberFormatException) {
+                    // Ignore header or lines that don't match expected format
                 }
             }
 

@@ -27,31 +27,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 
 class ProcessSelectorActivity : AppCompatActivity() {
 
-    private val activityScope = CoroutineScope(Dispatchers.Main + Job())
-
     private val overlayPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
         if (!Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, "Overlay permission is required.", Toast.LENGTH_SHORT).show()
+            // Permission not granted, handle appropriately or re-request
         }
     }
 
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { _ ->
-        // Could check Settings.canDrawOverlays(this) here if needed
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { _ ->
-        if (Settings.canDrawOverlays(this)) {
-            // Permission granted, do nothing and proceed
-        } else {
-            // Permission not granted, might want to show a message or close
-        }
-    }
+    private var allProcesses: List<ProcessInfo> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -109,6 +93,9 @@ class ProcessSelectorActivity : AppCompatActivity() {
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
+            /* [LEGACY/UNUSED]
+            startActivityForResult(intent, 0)
+            */
             overlayPermissionLauncher.launch(intent)
         }
     }

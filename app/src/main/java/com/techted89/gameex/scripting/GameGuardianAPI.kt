@@ -38,6 +38,7 @@ object GameGuardianAPI {
      * Searches for a value with the specified type and flags.
      * Mapped to NativeScanner.searchMemoryString.
      */
+<<<<<<< HEAD
     fun searchNumber(
         text: String,
         @Suppress("UNUSED_PARAMETER") type: Int,
@@ -46,6 +47,10 @@ object GameGuardianAPI {
         @Suppress("UNUSED_PARAMETER") memoryFrom: Long,
         @Suppress("UNUSED_PARAMETER") memoryTo: Long
     ) {
+=======
+    @Suppress("UNUSED_PARAMETER")
+    fun searchNumber(text: String, type: Int, encrypted: Boolean, sign: Int, memoryFrom: Long, memoryTo: Long) {
+>>>>>>> fix-compilation-warnings-deprecated-api-8932596857676430183
         // Construct query string based on parameters if needed
         // For now, we pass the raw text which might contain ranges etc.
         NativeScanner.searchMemoryString(targetPid, text)
@@ -54,7 +59,12 @@ object GameGuardianAPI {
     /**
      * Refines the search results.
      */
+<<<<<<< HEAD
     fun refineNumber(text: String, @Suppress("UNUSED_PARAMETER") type: Int) {
+=======
+    @Suppress("UNUSED_PARAMETER")
+    fun refineNumber(text: String, type: Int) {
+>>>>>>> fix-compilation-warnings-deprecated-api-8932596857676430183
         val intVal = text.toIntOrNull() ?: 0
         NativeScanner.filterMemory(targetPid, intVal)
     }
@@ -70,6 +80,7 @@ object GameGuardianAPI {
     /**
      * Edits all found results to the specified value.
      */
+<<<<<<< HEAD
     fun editAll(@Suppress("UNUSED_PARAMETER") text: String, @Suppress("UNUSED_PARAMETER") type: Int) {
         // NativeScanner.writeMemoryLoop(...)
     }
@@ -79,6 +90,20 @@ object GameGuardianAPI {
     }
 
     fun copyText(text: String, @Suppress("UNUSED_PARAMETER") fixLocale: Boolean = true) {
+=======
+    @Suppress("UNUSED_PARAMETER")
+    fun editAll(text: String, type: Int) {
+        // NativeScanner.writeMemoryLoop(...)
+    }
+
+    @Suppress("UNUSED_PARAMETER")
+    fun dumpMemory(from: Long, to: Long, dir: String, flags: Int? = null): Boolean {
+        return NativeScanner.dumpMemory(targetPid, from, to, dir)
+    }
+
+    @Suppress("UNUSED_PARAMETER")
+    fun copyText(text: String, fixLocale: Boolean = true) {
+>>>>>>> fix-compilation-warnings-deprecated-api-8932596857676430183
         contextRef?.get()?.let { SystemUtils.copyText(it, text) }
     }
 
@@ -90,12 +115,17 @@ object GameGuardianAPI {
         return SystemUtils.getTargetPackage(targetPid)
     }
 
+<<<<<<< HEAD
     fun searchPointer(
         @Suppress("UNUSED_PARAMETER") maxOffset: Int,
         @Suppress("UNUSED_PARAMETER") memoryFrom: Long = 0,
         @Suppress("UNUSED_PARAMETER") memoryTo: Long = -1,
         @Suppress("UNUSED_PARAMETER") limit: Long = 0
     ) {
+=======
+    @Suppress("UNUSED_PARAMETER")
+    fun searchPointer(maxOffset: Int, memoryFrom: Long = 0, memoryTo: Long = -1, limit: Long = 0) {
+>>>>>>> fix-compilation-warnings-deprecated-api-8932596857676430183
         // NativeScanner.searchPointer(...)
     }
 
@@ -107,6 +137,7 @@ object GameGuardianAPI {
         // Clear global results
     }
 
+<<<<<<< HEAD
     fun toast(@Suppress("UNUSED_PARAMETER") text: String, @Suppress("UNUSED_PARAMETER") fast: Boolean = false) {
         // Callback to UI needed
     }
@@ -117,6 +148,15 @@ object GameGuardianAPI {
         @Suppress("UNUSED_PARAMETER") negative: String? = null,
         @Suppress("UNUSED_PARAMETER") neutral: String? = null
     ): Int {
+=======
+    @Suppress("UNUSED_PARAMETER")
+    fun toast(text: String, fast: Boolean = false) {
+        // Callback to UI needed
+    }
+
+    @Suppress("UNUSED_PARAMETER")
+    fun alert(text: String, positive: String = "ok", negative: String? = null, neutral: String? = null): Int {
+>>>>>>> fix-compilation-warnings-deprecated-api-8932596857676430183
         // Blocking dialog logic stub
         return 1
     }
@@ -133,7 +173,12 @@ object GameGuardianAPI {
         return true // Mock state
     }
 
+<<<<<<< HEAD
     fun setVisible(@Suppress("UNUSED_PARAMETER") visible: Boolean) {
+=======
+    @Suppress("UNUSED_PARAMETER")
+    fun setVisible(visible: Boolean) {
+>>>>>>> fix-compilation-warnings-deprecated-api-8932596857676430183
         // UI toggle callback needed
     }
 

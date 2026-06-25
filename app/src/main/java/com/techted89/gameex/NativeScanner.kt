@@ -1,18 +1,18 @@
 package com.techted89.gameex
 
 object NativeScanner {
-    const val TYPE_BYTE = 1
-    const val TYPE_WORD = 2
-    const val TYPE_DWORD = 3
-    const val TYPE_XOR = 4
-    const val TYPE_QWORD = 5
-    const val TYPE_FLOAT = 6
-    const val TYPE_DOUBLE = 7
-
     const val FUZZY_CHANGED = 0
     const val FUZZY_UNCHANGED = 1
     const val FUZZY_INCREASED = 2
     const val FUZZY_DECREASED = 3
+
+    const val TYPE_BYTE = 1
+    const val TYPE_WORD = 2
+    const val TYPE_DWORD = 4
+    const val TYPE_XOR = 8
+    const val TYPE_FLOAT = 16
+    const val TYPE_QWORD = 32
+    const val TYPE_DOUBLE = 64
 
     init {
         System.loadLibrary("native-scanner")
@@ -35,7 +35,33 @@ object NativeScanner {
     const val FUZZY_DECREASED = 3
 
     /**
-     * Read a sequence of bytes from the memory of a target process.
+ * Searches the target process's memory for occurrences of a 4-byte integer value.
+ *
+ * @param pid The target process ID.
+ * @param value The 4-byte integer value to search for.
+ * @return The number of matches found.
+ */
+    external fun searchMemory(pid: Int, value: Int): Int
+
+    /**
+     * Searches memory using a query string (e.g., "100~200" for range, "100X8" for XOR).
+     */
+    external fun searchMemoryString(pid: Int, query: String): Int
+
+    /**
+     * Starts a fuzzy scan by dumping current memory snapshot.
+     */
+    external fun startFuzzyScan(pid: Int)
+
+    /**
+     * Filters the search results using fuzzy logic.
+     * @param mode 0=CHANGED, 1=UNCHANGED, 2=INCREASED, 3=DECREASED
+     * @param type Data type to compare.
+     */
+    external fun filterFuzzy(pid: Int, mode: Int, type: Int): Int
+
+    /**
+     * Filters the current search results, keeping only those that match the new value.
      *
      * @param pid The target process identifier (PID).
      * @param address The starting absolute memory address in the target process to read from.

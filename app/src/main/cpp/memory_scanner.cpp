@@ -19,8 +19,10 @@
 #include <sys/wait.h>
 #include <sys/mman.h>
 #include <errno.h>
-#include <cstdio>
-#include <inttypes.h>
+#include <cmath>
+
+// Forward Declaration for JNI compatibility to resolve circular dependency
+extern "C" JNIEXPORT jint JNICALL Java_com_techted89_gameex_NativeScanner_searchMemoryString(JNIEnv* env, jobject thiz, jint pid, jstring queryString);
 
 // Define the structure of a memory region
 struct MemoryRegion {
@@ -36,6 +38,10 @@ struct SnapshotRegion {
     uintptr_t startAddress;
     std::vector<uint8_t> data;
 };
+
+// Global fuzzy snapshots
+std::vector<SnapshotRegion> fuzzySnapshots;
+std::mutex fuzzyMutex;
 
 // Global buffer to store found results (Address List)
 std::vector<jlong> searchResults;
@@ -646,148 +652,52 @@ JNIEXPORT void JNICALL
 Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
         JNIEnv* env,
         jobject,
-        jint pid,
-        jint type) {
-
-    std::vector<SnapshotRegion> localSnapshots;
+        jint pid) {
+    std::vector<SnapshotRegion> newSnapshots;
     std::vector<MemoryRegion> regions = getMemoryRegions(pid);
     const size_t CHUNK_SIZE = 65536; // 64KB chunks
-    std::vector<uint8_t> buffer(CHUNK_SIZE);
 
     for (const auto& region : regions) {
         uintptr_t currentAddr = region.startAddress;
         while (currentAddr < region.endAddress) {
-            size_t readSize = std::min((size_t)(region.endAddress - currentAddr), CHUNK_SIZE);
-            struct iovec local_iov = {buffer.data(), readSize};
+            uintptr_t remaining = region.endAddress - currentAddr;
+            size_t readSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : (size_t)remaining;
+
+            SnapshotRegion snapshot;
+            snapshot.startAddress = currentAddr;
+            snapshot.data.resize(readSize);
+
+            struct iovec local_iov = {snapshot.data.data(), readSize};
             struct iovec remote_iov = {(void*)currentAddr, readSize};
 
             ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
 
             if (bytesRead > 0) {
-                SnapshotRegion snap;
-                snap.startAddress = currentAddr;
-                snap.data.assign(buffer.begin(), buffer.begin() + bytesRead);
-                localSnapshots.push_back(snap);
+                if ((size_t)bytesRead < readSize) {
+                    snapshot.data.resize(bytesRead);
+                }
+                newSnapshots.push_back(std::move(snapshot));
             }
+
             currentAddr += readSize;
         }
     }
 
-    // Sort snapshots to allow binary search
-    std::sort(localSnapshots.begin(), localSnapshots.end(), [](const SnapshotRegion& a, const SnapshotRegion& b) {
+    // Sort by address just in case
+    std::sort(newSnapshots.begin(), newSnapshots.end(), [](const SnapshotRegion& a, const SnapshotRegion& b) {
         return a.startAddress < b.startAddress;
     });
 
     {
-        std::lock_guard<std::mutex> lock(fuzzyMutex);
-        fuzzySnapshots = std::move(localSnapshots);
-    }
+        // Acquire locks to swap state
+        std::lock_guard<std::mutex> lock1(fuzzyMutex);
+        std::lock_guard<std::mutex> lock2(searchResultsMutex);
 
-    {
-        std::lock_guard<std::mutex> lock(searchResultsMutex);
+        fuzzySnapshots = std::move(newSnapshots);
         searchResults.clear();
     }
 
     __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Baseline Captured: %zu regions", fuzzySnapshots.size());
-}
-
-extern "C"
-JNIEXPORT jint JNICALL
-Java_com_techted89_gameex_NativeScanner_filterFuzzy(
-        JNIEnv* env,
-        jobject,
-        jint pid,
-        jint mode,
-        jint type) {
-
-    std::lock_guard<std::mutex> lock(fuzzyMutex);
-    if (fuzzySnapshots.empty()) return 0;
-
-    std::vector<jlong> newResults;
-    const size_t CHUNK_SIZE = 65536;
-    std::vector<uint8_t> buffer(CHUNK_SIZE);
-
-    int dataSize = 4;
-    if (type == TYPE_BYTE) dataSize = 1;
-    else if (type == TYPE_WORD) dataSize = 2;
-    else if (type == TYPE_DWORD || type == TYPE_FLOAT) dataSize = 4;
-    else if (type == TYPE_QWORD || type == TYPE_DOUBLE) dataSize = 8;
-
-    for (auto& snap : fuzzySnapshots) {
-        size_t regionSize = snap.data.size();
-        struct iovec local_iov = {buffer.data(), regionSize};
-        struct iovec remote_iov = {(void*)snap.startAddress, regionSize};
-
-        ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
-        if (bytesRead <= 0) continue;
-
-        size_t limit = (size_t)bytesRead;
-        limit -= (limit % dataSize);
-
-        for (size_t i = 0; i < limit; i += dataSize) {
-            bool match = false;
-
-            if (type == TYPE_FLOAT) {
-                float oldVal, newVal;
-                memcpy(&oldVal, &snap.data[i], 4);
-                memcpy(&newVal, &buffer[i], 4);
-                if (mode == 0) match = (oldVal != newVal);
-                else if (mode == 1) match = (oldVal == newVal);
-                else if (mode == 2) match = (newVal > oldVal);
-                else if (mode == 3) match = (newVal < oldVal);
-            } else if (type == TYPE_DOUBLE) {
-                double oldVal, newVal;
-                memcpy(&oldVal, &snap.data[i], 8);
-                memcpy(&newVal, &buffer[i], 8);
-                if (mode == 0) match = (oldVal != newVal);
-                else if (mode == 1) match = (oldVal == newVal);
-                else if (mode == 2) match = (newVal > oldVal);
-                else if (mode == 3) match = (newVal < oldVal);
-            } else {
-                int64_t oldVal = 0, newVal = 0;
-
-                if (type == TYPE_BYTE) {
-                    oldVal = (int8_t)snap.data[i];
-                    newVal = (int8_t)buffer[i];
-                } else if (type == TYPE_WORD) {
-                    int16_t o, n;
-                    memcpy(&o, &snap.data[i], 2);
-                    memcpy(&n, &buffer[i], 2);
-                    oldVal = o; newVal = n;
-                } else if (type == TYPE_DWORD) {
-                    int32_t o, n;
-                    memcpy(&o, &snap.data[i], 4);
-                    memcpy(&n, &buffer[i], 4);
-                    oldVal = o; newVal = n;
-                } else if (type == TYPE_QWORD) {
-                    memcpy(&oldVal, &snap.data[i], 8);
-                    memcpy(&newVal, &buffer[i], 8);
-                }
-
-                if (mode == 0) match = (oldVal != newVal);
-                else if (mode == 1) match = (oldVal == newVal);
-                else if (mode == 2) match = (newVal > oldVal);
-                else if (mode == 3) match = (newVal < oldVal);
-            }
-
-            if (match) {
-                 newResults.push_back((jlong)(snap.startAddress + i));
-                 // Update snapshot with new value
-                 memcpy(&snap.data[i], &buffer[i], dataSize);
-
-                 if (newResults.size() >= 100000) goto filter_done;
-            }
-        }
-    }
-
-filter_done:
-    {
-        std::lock_guard<std::mutex> lock(searchResultsMutex);
-        searchResults = std::move(newResults);
-    }
-
-    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Filter Complete. Found: %zu", searchResults.size());
-    return (jint)searchResults.size();
 }
 
 extern "C"
@@ -939,4 +849,196 @@ Java_com_techted89_gameex_NativeScanner_getLoadedModules(JNIEnv* env, jobject, j
         env->DeleteLocalRef(s);
     }
     return result;
+}
+
+// Helper: compareFuzzy
+// Returns true if the condition (mode) is met between oldPtr and newPtr based on type
+inline bool compareFuzzy(const uint8_t* oldPtr, const uint8_t* newPtr, int mode, int type) {
+    switch(type) {
+        case 1: { // BYTE
+            int8_t o = *(int8_t*)oldPtr;
+            int8_t n = *(int8_t*)newPtr;
+            switch(mode) {
+                case 0: return n != o;
+                case 1: return n == o;
+                case 2: return n > o;
+                case 3: return n < o;
+            }
+            break;
+        }
+        case 2: { // WORD
+            int16_t o = *(int16_t*)oldPtr;
+            int16_t n = *(int16_t*)newPtr;
+            switch(mode) {
+                case 0: return n != o;
+                case 1: return n == o;
+                case 2: return n > o;
+                case 3: return n < o;
+            }
+            break;
+        }
+        case 4: { // DWORD
+            int32_t o = *(int32_t*)oldPtr;
+            int32_t n = *(int32_t*)newPtr;
+            switch(mode) {
+                case 0: return n != o;
+                case 1: return n == o;
+                case 2: return n > o;
+                case 3: return n < o;
+            }
+            break;
+        }
+        case 16: { // FLOAT
+            float o, n;
+            memcpy(&o, oldPtr, 4);
+            memcpy(&n, newPtr, 4);
+            const float EPSILON = 0.0001f;
+            switch(mode) {
+                case 0: return fabsf(n - o) > EPSILON;
+                case 1: return fabsf(n - o) <= EPSILON;
+                case 2: return n > o + EPSILON;
+                case 3: return n < o - EPSILON;
+            }
+            break;
+        }
+        case 64: { // DOUBLE
+            double o, n;
+            memcpy(&o, oldPtr, 8);
+            memcpy(&n, newPtr, 8);
+            const double EPSILON = 0.0000001;
+            switch(mode) {
+                case 0: return fabs(n - o) > EPSILON;
+                case 1: return fabs(n - o) <= EPSILON;
+                case 2: return n > o + EPSILON;
+                case 3: return n < o - EPSILON;
+            }
+            break;
+        }
+        case 32: { // QWORD
+             int64_t o, n;
+             memcpy(&o, oldPtr, 8);
+             memcpy(&n, newPtr, 8);
+             switch(mode) {
+                 case 0: return n != o;
+                 case 1: return n == o;
+                 case 2: return n > o;
+                 case 3: return n < o;
+             }
+             break;
+        }
+    }
+    return false;
+}
+
+// Helper: fuzzyScanInitial (First pass)
+void fuzzyScanInitial(int pid, int mode, int type, size_t stride, size_t maxResults) {
+    for (auto& snapshot : fuzzySnapshots) {
+        if (searchResults.size() >= maxResults) break;
+
+        size_t size = snapshot.data.size();
+        std::vector<uint8_t> currentBuffer(size);
+
+        struct iovec local_iov = {currentBuffer.data(), size};
+        struct iovec remote_iov = {(void*)snapshot.startAddress, size};
+
+        ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+        if (bytesRead < (ssize_t)stride) continue;
+
+        size_t limit = (size_t)bytesRead;
+        for (size_t i = 0; i + stride <= limit; i += stride) {
+            if (compareFuzzy(&snapshot.data[i], &currentBuffer[i], mode, type)) {
+                searchResults.push_back((jlong)(snapshot.startAddress + i));
+                memcpy(&snapshot.data[i], &currentBuffer[i], stride);
+                if (searchResults.size() >= maxResults) return;
+            }
+        }
+    }
+}
+
+// Helper: fuzzyScanFilter (Subsequent passes)
+void fuzzyScanFilter(int pid, int mode, int type, size_t stride) {
+    std::vector<jlong> newResults;
+    newResults.reserve(searchResults.size());
+
+    std::sort(searchResults.begin(), searchResults.end());
+
+    size_t resultIdx = 0;
+    for (auto& snapshot : fuzzySnapshots) {
+        if (resultIdx >= searchResults.size()) break;
+
+        jlong startAddr = (jlong)snapshot.startAddress;
+        jlong endAddr = (jlong)(snapshot.startAddress + snapshot.data.size());
+
+        while (resultIdx < searchResults.size() && searchResults[resultIdx] < startAddr) {
+            resultIdx++;
+        }
+
+        if (resultIdx >= searchResults.size()) break;
+        if (searchResults[resultIdx] >= endAddr) continue;
+
+        size_t size = snapshot.data.size();
+        std::vector<uint8_t> currentBuffer(size);
+        struct iovec local_iov = {currentBuffer.data(), size};
+        struct iovec remote_iov = {(void*)snapshot.startAddress, size};
+
+        ssize_t bytesRead = process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0);
+        if (bytesRead <= 0) {
+             while (resultIdx < searchResults.size() && searchResults[resultIdx] < endAddr) {
+                resultIdx++;
+            }
+            continue;
+        }
+
+        while (resultIdx < searchResults.size() && searchResults[resultIdx] < endAddr) {
+            jlong addr = searchResults[resultIdx];
+            size_t offset = (size_t)(addr - startAddr);
+
+            if (offset + stride <= (size_t)bytesRead) {
+                if (compareFuzzy(&snapshot.data[offset], &currentBuffer[offset], mode, type)) {
+                    newResults.push_back(addr);
+                    memcpy(&snapshot.data[offset], &currentBuffer[offset], stride);
+                }
+            }
+            resultIdx++;
+        }
+    }
+    searchResults = std::move(newResults);
+}
+
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_techted89_gameex_NativeScanner_filterFuzzy(
+        JNIEnv* env,
+        jobject,
+        jint pid,
+        jint mode,
+        jint type) {
+    std::lock_guard<std::mutex> lock1(fuzzyMutex);
+    std::lock_guard<std::mutex> lock2(searchResultsMutex);
+
+    if (fuzzySnapshots.empty()) {
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Fuzzy Filter: No baseline snapshot found.");
+        return 0;
+    }
+
+    const size_t MAX_RESULTS = 100000;
+    size_t stride = 4;
+    switch(type) {
+        case 1: stride = 1; break;
+        case 2: stride = 2; break;
+        case 4: stride = 4; break;
+        case 16: stride = 4; break;
+        case 32: stride = 8; break;
+        case 64: stride = 8; break;
+        default: stride = 4; break;
+    }
+
+    if (searchResults.empty()) {
+        fuzzyScanInitial(pid, mode, type, stride, MAX_RESULTS);
+    } else {
+        fuzzyScanFilter(pid, mode, type, stride);
+    }
+
+    __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Filter Complete. Remaining: %zu", searchResults.size());
+    return (jint)searchResults.size();
 }

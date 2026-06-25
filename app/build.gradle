@@ -23,9 +23,7 @@ android {
     }
 
     packagingOptions {
-        jniLibs {
-            useLegacyPackaging = true
-        }
+        jniLibs.useLegacyPackaging = true
     }
 
     externalNativeBuild {

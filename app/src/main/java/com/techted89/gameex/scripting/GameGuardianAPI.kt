@@ -9,6 +9,7 @@ import com.techted89.gameex.utils.ProcessUtils
 import com.techted89.gameex.utils.SystemUtils
 import java.lang.ref.WeakReference
 
+@Suppress("UNUSED_PARAMETER")
 object GameGuardianAPI {
     private var contextRef: WeakReference<Context>? = null
     private var targetPid: Int = 0

@@ -12,6 +12,7 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.Spinner
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -125,6 +126,13 @@ class ProcessSelectorActivity : AppCompatActivity() {
         // Handle result if needed
     }
 
+    private val overlayPermissionLauncher: ActivityResultLauncher<Intent> =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            if (!Settings.canDrawOverlays(this)) {
+                // Permission not granted, could show a toast or message
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             if (!Settings.canDrawOverlays(this)) {
@@ -179,6 +187,7 @@ class ProcessSelectorActivity : AppCompatActivity() {
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
+            // [LEGACY/UNUSED] startActivityForResult(intent, 0)
             overlayPermissionLauncher.launch(intent)
         }
     }

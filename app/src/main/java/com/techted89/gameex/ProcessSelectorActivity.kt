@@ -4,14 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
-import androidx.activity.result.contract.ActivityResultContracts
-import android.text.Editable
-import android.text.TextWatcher
-import android.view.View
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
-import android.widget.EditText
-import android.widget.Spinner
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -28,30 +21,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 
 class ProcessSelectorActivity : AppCompatActivity() {
 
-    private var allProcesses: List<ProcessInfo> = emptyList()
-    private lateinit var overlayPermissionLauncher: ActivityResultLauncher<Intent>
-
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        // Handle result if needed
-    }
+    private val activityScope = CoroutineScope(Dispatchers.Main + Job())
 
     private val overlayPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
-        // Handle result if needed
+        if (!Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "Overlay permission is required.", Toast.LENGTH_SHORT).show()
+        }
     }
-
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        // Result handled if needed, for now just returning to the app
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { _ ->
-        // Handle result if needed
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -109,7 +87,6 @@ class ProcessSelectorActivity : AppCompatActivity() {
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
-            // [LEGACY/UNUSED] startActivityForResult(intent, 0)
             overlayPermissionLauncher.launch(intent)
         }
     }
@@ -132,34 +109,6 @@ class ProcessSelectorActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         activityScope.cancel()
-    }
-
-    private fun filterProcesses(recycler: RecyclerView) {
-        val etSearch = findViewById<EditText>(R.id.et_search_process)
-        val spinnerFilter = findViewById<Spinner>(R.id.spinner_filter)
-
-        val query = etSearch.text.toString().trim()
-        val filterType = spinnerFilter.selectedItem?.toString() ?: "All"
-
-        val filtered = allProcesses.filter { process ->
-            val matchesName = process.appName.contains(query, ignoreCase = true) ||
-                              process.processName.contains(query, ignoreCase = true)
-
-            val matchesType = when (filterType) {
-                "System Apps" -> process.isSystemApp
-                "User Apps" -> !process.isSystemApp
-                "Hooks" -> false // Placeholder filter for requested feature
-                else -> true
-            }
-            matchesName && matchesType
-        }
-
-        // Sorting: User apps first, then alphabetical by App Name
-        val sorted = filtered.sortedWith(compareBy({ it.isSystemApp }, { it.appName.lowercase() }))
-
-        recycler.adapter = ProcessAdapter(sorted) { process ->
-            launchOverlayService(process)
-        }
     }
 
     private fun launchOverlayService(process: ProcessInfo) {

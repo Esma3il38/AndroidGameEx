@@ -54,50 +54,16 @@ object RootUtils {
         // Typical ps output: USER PID ... NAME
         // [LEGACY/UNUSED] val parts = line.trim().split(WHITESPACE_REGEX)
         while (line != null) {
-            // [LEGACY/UNUSED]
-            // val parts = line.trim().split(WHITESPACE_REGEX)
-
-            // Fast manual character-by-character parser
-            val trimmedLine = line.trimEnd()
-            val len = trimmedLine.length
-
-            var wordCount = 0
-            var inWord = false
-
-            var pidStr = ""
-            var currentWordStart = -1
-            var lastWordStart = -1
-
-            for (i in 0 until len) {
-                val c = trimmedLine[i]
-                if (c == ' ' || c == '\t') {
-                    if (inWord) {
-                        if (wordCount == 1) {
-                            pidStr = trimmedLine.substring(currentWordStart, i)
-                        }
-                        wordCount++
-                        inWord = false
-                    }
-                } else {
-                    if (!inWord) {
-                        inWord = true
-                        currentWordStart = i
-                        lastWordStart = i
-                    }
-                }
-            }
-
-            if (inWord) {
-                if (wordCount == 1) {
-                    pidStr = trimmedLine.substring(currentWordStart, len)
-                }
-                wordCount++
-            }
-
-            if (wordCount >= 9) {
-                val name = trimmedLine.substring(lastWordStart, len)
+            // Typical ps output: USER PID ... NAME
+            val parts = line.trim().split(WHITESPACE_REGEX)
+            if (parts.size >= 8) {
+                // Assuming standard android ps output where PID is usually 2nd column
+                // and Name is last column.
+                val pidStr = parts[1]
+                val name = parts.last()
                 try {
                     val pid = pidStr.toInt()
+                    // Default values for raw parsing
                     processes.add(ProcessInfo(pid, name, name, null, true))
                 } catch (e: NumberFormatException) {
                     // Ignore header or lines that don't match expected format
@@ -159,28 +125,25 @@ object RootUtils {
                 parsePsOutput(reader)
             }
 
-            // Enrich with PackageManager info
+            // Enrich with PackageManager info (Label, Icon, System Status)
             val pm = context.packageManager
-            val installedApps = pm.getInstalledApplications(0).associateBy { it.packageName }
             processes.addAll(rawProcesses.map { info ->
                 try {
-                    val appInfo = installedApps[info.processName]
-                    if (appInfo != null) {
-                        val appName = pm.getApplicationLabel(appInfo).toString()
-                        val icon = pm.getApplicationIcon(appInfo)
-                        val isSystem = appInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0
-                        info.copy(appName = appName, icon = icon, isSystemApp = isSystem)
-                    } else {
-                        // Not an app, keep defaults (isSystemApp=true is reasonable for native processes)
-                        info
-                    }
+                    val appInfo = pm.getApplicationInfo(info.processName, 0)
+                    val appName = pm.getApplicationLabel(appInfo).toString()
+                    val icon = pm.getApplicationIcon(appInfo)
+                    // Ensure operator precedence is relied upon (and binds tighter than !=) to avoid linter warnings
+                    val isSystem = appInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0
+                    info.copy(appName = appName, icon = icon, isSystemApp = isSystem)
+                } catch (e: PackageManager.NameNotFoundException) {
+                    // Not an app, keep defaults (isSystemApp=true is reasonable for native processes)
+                    info
                 } catch (e: Exception) {
                      info
                 }
             })
 
-            val p = process
-            p?.waitFor()
+            p.waitFor()
         } catch (e: Exception) {
             e.printStackTrace()
         } finally {

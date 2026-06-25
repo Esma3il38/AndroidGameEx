@@ -12,7 +12,6 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.Spinner
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -30,13 +29,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 
 class ProcessSelectorActivity : AppCompatActivity() {
 
-    private val overlayPermissionLauncher = registerForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
-    ) {
-        if (!Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, "Overlay permission is required", Toast.LENGTH_SHORT).show()
-        }
-    }
+    private var allProcesses: List<ProcessInfo> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -128,6 +121,34 @@ class ProcessSelectorActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         activityScope.cancel()
+    }
+
+    private fun filterProcesses(recycler: RecyclerView) {
+        val etSearch = findViewById<EditText>(R.id.et_search_process)
+        val spinnerFilter = findViewById<Spinner>(R.id.spinner_filter)
+
+        val query = etSearch.text.toString().trim()
+        val filterType = spinnerFilter.selectedItem?.toString() ?: "All"
+
+        val filtered = allProcesses.filter { process ->
+            val matchesName = process.appName.contains(query, ignoreCase = true) ||
+                              process.processName.contains(query, ignoreCase = true)
+
+            val matchesType = when (filterType) {
+                "System Apps" -> process.isSystemApp
+                "User Apps" -> !process.isSystemApp
+                "Hooks" -> false // Placeholder filter for requested feature
+                else -> true
+            }
+            matchesName && matchesType
+        }
+
+        // Sorting: User apps first, then alphabetical by App Name
+        val sorted = filtered.sortedWith(compareBy({ it.isSystemApp }, { it.appName.lowercase() }))
+
+        recycler.adapter = ProcessAdapter(sorted) { process ->
+            launchOverlayService(process)
+        }
     }
 
     private fun filterProcesses(recycler: RecyclerView) {

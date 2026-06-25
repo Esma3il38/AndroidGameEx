@@ -41,9 +41,8 @@ object GameGuardianAPI {
      * Searches for a value with the specified type and flags.
      * Mapped to NativeScanner.searchMemory.
      */
-    // [LEGACY/UNUSED]
-    // fun searchNumber(text: String, type: Int, encrypted: Boolean, sign: Int, memoryFrom: Long, memoryTo: Long) {
-    fun searchNumber(text: String, @Suppress("UNUSED_PARAMETER") type: Int, @Suppress("UNUSED_PARAMETER") encrypted: Boolean, @Suppress("UNUSED_PARAMETER") sign: Int, @Suppress("UNUSED_PARAMETER") memoryFrom: Long, @Suppress("UNUSED_PARAMETER") memoryTo: Long) {
+    @Suppress("UNUSED_PARAMETER")
+    fun searchNumber(text: String, type: Int, encrypted: Boolean, sign: Int, memoryFrom: Long, memoryTo: Long) {
         // Construct query string based on parameters if needed
         // For now, we pass the raw text which might contain ranges etc.
         NativeScanner.searchMemoryString(targetPid, text)
@@ -52,9 +51,8 @@ object GameGuardianAPI {
     /**
      * Refines the search results.
      */
-    // [LEGACY/UNUSED]
-    // fun refineNumber(text: String, type: Int) {
-    fun refineNumber(text: String, @Suppress("UNUSED_PARAMETER") type: Int) {
+    @Suppress("UNUSED_PARAMETER")
+    fun refineNumber(text: String, type: Int) {
         val intVal = text.toIntOrNull() ?: 0
         NativeScanner.filterMemory(targetPid, intVal)
     }
@@ -70,21 +68,18 @@ object GameGuardianAPI {
     /**
      * Edits all found results to the specified value.
      */
-    // [LEGACY/UNUSED]
-    // fun editAll(text: String, type: Int) {
-    fun editAll(@Suppress("UNUSED_PARAMETER") text: String, @Suppress("UNUSED_PARAMETER") type: Int) {
+    @Suppress("UNUSED_PARAMETER")
+    fun editAll(text: String, type: Int) {
         // NativeScanner.writeMemoryLoop(...)
     }
 
-    // [LEGACY/UNUSED]
-    // fun dumpMemory(from: Long, to: Long, dir: String, flags: Int? = null): Boolean {
-    fun dumpMemory(from: Long, to: Long, dir: String, @Suppress("UNUSED_PARAMETER") flags: Int? = null): Boolean {
+    @Suppress("UNUSED_PARAMETER")
+    fun dumpMemory(from: Long, to: Long, dir: String, flags: Int? = null): Boolean {
         return NativeScanner.dumpMemory(targetPid, from, to, dir)
     }
 
-    // [LEGACY/UNUSED]
-    // fun copyText(text: String, fixLocale: Boolean = true) {
-    fun copyText(text: String, @Suppress("UNUSED_PARAMETER") fixLocale: Boolean = true) {
+    @Suppress("UNUSED_PARAMETER")
+    fun copyText(text: String, fixLocale: Boolean = true) {
         contextRef?.get()?.let { SystemUtils.copyText(it, text) }
     }
 
@@ -96,9 +91,8 @@ object GameGuardianAPI {
         return SystemUtils.getTargetPackage(targetPid)
     }
 
-    // [LEGACY/UNUSED]
-    // fun searchPointer(maxOffset: Int, memoryFrom: Long = 0, memoryTo: Long = -1, limit: Long = 0) {
-    fun searchPointer(@Suppress("UNUSED_PARAMETER") maxOffset: Int, @Suppress("UNUSED_PARAMETER") memoryFrom: Long = 0, @Suppress("UNUSED_PARAMETER") memoryTo: Long = -1, @Suppress("UNUSED_PARAMETER") limit: Long = 0) {
+    @Suppress("UNUSED_PARAMETER")
+    fun searchPointer(maxOffset: Int, memoryFrom: Long = 0, memoryTo: Long = -1, limit: Long = 0) {
         // NativeScanner.searchPointer(...)
     }
 
@@ -110,15 +104,13 @@ object GameGuardianAPI {
         // Clear global results
     }
 
-    // [LEGACY/UNUSED]
-    // fun toast(text: String, fast: Boolean = false) {
-    fun toast(@Suppress("UNUSED_PARAMETER") text: String, @Suppress("UNUSED_PARAMETER") fast: Boolean = false) {
+    @Suppress("UNUSED_PARAMETER")
+    fun toast(text: String, fast: Boolean = false) {
         // Callback to UI needed
     }
 
-    // [LEGACY/UNUSED]
-    // fun alert(text: String, positive: String = "ok", negative: String? = null, neutral: String? = null): Int {
-    fun alert(@Suppress("UNUSED_PARAMETER") text: String, @Suppress("UNUSED_PARAMETER") positive: String = "ok", @Suppress("UNUSED_PARAMETER") negative: String? = null, @Suppress("UNUSED_PARAMETER") neutral: String? = null): Int {
+    @Suppress("UNUSED_PARAMETER")
+    fun alert(text: String, positive: String = "ok", negative: String? = null, neutral: String? = null): Int {
         // Blocking dialog logic stub
         return 1
     }
@@ -135,9 +127,8 @@ object GameGuardianAPI {
         return true // Mock state
     }
 
-    // [LEGACY/UNUSED]
-    // fun setVisible(visible: Boolean) {
-    fun setVisible(@Suppress("UNUSED_PARAMETER") visible: Boolean) {
+    @Suppress("UNUSED_PARAMETER")
+    fun setVisible(visible: Boolean) {
         // UI toggle callback needed
     }
 

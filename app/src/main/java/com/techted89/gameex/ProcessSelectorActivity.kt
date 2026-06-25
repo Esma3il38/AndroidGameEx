@@ -101,8 +101,7 @@ class ProcessSelectorActivity : AppCompatActivity() {
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
-            // startActivityForResult(intent, 0) // [LEGACY/UNUSED]
-            overlayPermissionLauncher.launch(intent)
+            @Suppress("DEPRECATION") startActivityForResult(intent, 0)
         }
     }
 

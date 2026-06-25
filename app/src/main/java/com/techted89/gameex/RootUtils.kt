@@ -99,91 +99,56 @@ object RootUtils {
 
         var line = reader.readLine()
         while (line != null) {
-            val trimmedLine = line.trim()
-            if (trimmedLine.isEmpty()) {
-                line = reader.readLine()
-                continue
-            }
+            // Typical ps output: USER PID ... NAME
+            // [LEGACY/UNUSED]
+            // val parts = line.trim().split(WHITESPACE_REGEX)
+            // if (parts.size >= 9) {
+            //     val pidStr = parts[1]
+            //     val name = parts.last()
+            //     try {
+            //         val pid = pidStr.toInt()
+            //         processes.add(ProcessInfo(pid, name, name, null, true))
+            //     } catch (e: NumberFormatException) {
+            //     }
+            // }
 
             var wordCount = 0
             var inWord = false
             var pidStart = -1
             var pidEnd = -1
-            var nameStart = -1
-            var lastCharIndex = trimmedLine.length - 1
+            var lastWordStart = -1
+            var lastWordEnd = -1
 
-            for (i in 0..lastCharIndex) {
-                val c = trimmedLine[i]
-                if (c == ' ' || c == '\t') {
-                    if (inWord) {
-                        inWord = false
-                        if (wordCount == 2) {
-                            pidEnd = i
-                        }
+            for (i in line.indices) {
+                val c = line[i]
+                val isSpace = c <= ' '
+
+                if (!isSpace && !inWord) {
+                    inWord = true
+                    wordCount++
+                    if (wordCount == 2) {
+                        pidStart = i
                     }
-                } else {
-                    if (!inWord) {
-                        inWord = true
-                        wordCount++
-                        if (wordCount == 2) {
-                            pidStart = i
-                        }
-                        nameStart = i
+                    lastWordStart = i
+                } else if (isSpace && inWord) {
+                    inWord = false
+                    if (wordCount == 2) {
+                        pidEnd = i
                     }
+                    lastWordEnd = i
                 }
             }
+            if (inWord) {
+                lastWordEnd = line.length
+            }
 
-            if (wordCount >= 9 && pidStart != -1 && pidEnd != -1) {
+            if (wordCount >= 9) {
                 try {
-                    val pidStr = trimmedLine.substring(pidStart, pidEnd)
-                    val name = trimmedLine.substring(nameStart)
+                    val pidStr = line.substring(pidStart, pidEnd)
+                    val name = line.substring(lastWordStart, lastWordEnd).trimEnd()
                     val pid = pidStr.toInt()
                     processes.add(ProcessInfo(pid, name, name, null, true))
-                } catch (e: NumberFormatException) {
-                    // Ignore
-                }
-            }
-            */
-            val trimmedLine = line.trimEnd()
-            val len = trimmedLine.length
-            var i = 0
-
-            // Skip leading whitespace
-            while (i < len && trimmedLine[i] <= ' ') i++
-
-            if (i < len) {
-                // Skip word 1: USER
-                while (i < len && trimmedLine[i] > ' ') i++
-                while (i < len && trimmedLine[i] <= ' ') i++
-
-                if (i < len) {
-                    // Word 2: PID
-                    val pidStart = i
-                    while (i < len && trimmedLine[i] > ' ') i++
-                    val pidEnd = i
-
-                    var wordCount = 2
-                    var lastWordStart = -1
-
-                    while (i < len) {
-                        while (i < len && trimmedLine[i] <= ' ') i++
-                        if (i < len) {
-                            wordCount++
-                            lastWordStart = i
-                            while (i < len && trimmedLine[i] > ' ') i++
-                        }
-                    }
-
-                    if (wordCount >= 9 && lastWordStart != -1) {
-                        val pidStr = trimmedLine.substring(pidStart, pidEnd)
-                        val name = trimmedLine.substring(lastWordStart, len)
-                        try {
-                            val pid = pidStr.toInt()
-                            processes.add(ProcessInfo(pid, name, name, null, true))
-                        } catch (e: NumberFormatException) {
-                            // Ignore header or lines that don't match expected format
-                        }
-                    }
+                } catch (e: Exception) {
                 }
             }
             line = reader.readLine()

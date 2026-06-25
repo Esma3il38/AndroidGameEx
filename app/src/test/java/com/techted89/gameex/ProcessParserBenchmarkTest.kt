@@ -6,6 +6,31 @@ import java.io.StringReader
 import kotlin.system.measureTimeMillis
 
 class ProcessParserBenchmarkTest {
+    private val WHITESPACE_REGEX = "\\s+".toRegex()
+
+    private fun legacyParsePsOutput(reader: BufferedReader): List<ProcessInfo> {
+        val processes = mutableListOf<ProcessInfo>()
+        var line: String? = reader.readLine()
+        while (line != null) {
+            // Typical ps output: USER PID ... NAME
+            val parts = line.trim().split(WHITESPACE_REGEX)
+            if (parts.size >= 9) {
+                // Assuming standard android ps output where PID is usually 2nd column
+                // and Name is last column.
+                val pidStr = parts[1]
+                val name = parts.last()
+                try {
+                    val pid = pidStr.toInt()
+                    // Default values for raw parsing
+                    processes.add(ProcessInfo(pid, name, name, null, true))
+                } catch (e: NumberFormatException) {
+                    // Ignore header or lines that don't match expected format
+                }
+            }
+            line = reader.readLine()
+        }
+        return processes
+    }
 
     @Test
     fun benchmarkRegexParsing() {
@@ -21,29 +46,14 @@ class ProcessParserBenchmarkTest {
         // But let's warm up JVM a bit with dummy loops
         @Suppress("UNUSED_VARIABLE")
         repeat(100) {
-            @Suppress("UNUSED_VARIABLE") val parts = psOutputLine.trim().split("\\s+".toRegex())
+            @Suppress("UNUSED_VARIABLE")
+            val parts = psOutputLine.trim().split("\\s+".toRegex())
         }
 
         // 2. Measure Slow Implementation (simulated)
         val timeSlow = measureTimeMillis {
              val reader = BufferedReader(StringReader(hugeString))
-             var line: String? = reader.readLine()
-             while (line != null) {
-                @Suppress("UNUSED_VARIABLE")
-                val parts = line.trim().split("\\s+".toRegex())
-                if (parts.size >= 9) {
-                     val pidStr = parts[1]
-                     val name = parts.last()
-                     try {
-                         val pid = pidStr.toInt()
-                         // Construct ProcessInfo to be fair, assuming it's cheap
-                         ProcessInfo(pid, name, name, null, true)
-                     } catch (_: NumberFormatException) {
-                         // Ignore
-                     }
-                }
-                line = reader.readLine()
-             }
+             legacyParsePsOutput(reader)
         }
         println("Slow parsing took: $timeSlow ms")
 

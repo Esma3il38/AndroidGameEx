@@ -59,45 +59,57 @@ object RootUtils {
         // Typical ps output: USER PID ... NAME
         // [LEGACY/UNUSED] val parts = line.trim().split(WHITESPACE_REGEX)
         while (line != null) {
-            // [LEGACY/UNUSED]
-            // Typical ps output: USER PID ... NAME
-            // val parts = line.trim().split(WHITESPACE_REGEX)
-            // if (parts.size >= 9) {
-            //     // Assuming standard android ps output where PID is usually 2nd column
-            //     // and Name is last column.
-            //     val pidStr = parts[1]
-            //     val name = parts.last()
-            //     try {
-            //         val pid = pidStr.toInt()
-            //         // Default values for raw parsing
-            //         processes.add(ProcessInfo(pid, name, name, null, true))
-            //     } catch (e: NumberFormatException) {
-            //         // Ignore header or lines that don't match expected format
-            //     }
-            // }
+            val length = line.length
+            var start = 0
+            while (start < length && line[start] <= ' ') start++
+            var end = length - 1
+            while (end >= start && line[end] <= ' ') end--
 
-            val trimmedLine = line.trimEnd()
-            val len = trimmedLine.length
-            var i = 0
+            if (start <= end) {
+                var col = 0
+                var i = start
+                var pid = -1
+                var isValidPid = false
 
-            while (i < len && trimmedLine[i] <= ' ') i++
-
-            var wordCount = 0
-            var pid = -1
-            var lastWord = ""
-
-            while (i < len) {
-                val start = i
-                while (i < len && trimmedLine[i] > ' ') i++
-                lastWord = trimmedLine.substring(start, i)
-                wordCount++
-
-                if (wordCount == 2) {
-                    try {
-                        pid = lastWord.toInt()
-                    } catch (e: NumberFormatException) {
-                        // Ignore
+                while (i <= end) {
+                    if (line[i] > ' ') {
+                        if (col == 1) {
+                            pid = 0
+                            isValidPid = true
+                            while (i <= end && line[i] > ' ') {
+                                val c = line[i]
+                                if (c in '0'..'9') {
+                                    val digit = c - '0'
+                                    if (pid > (Int.MAX_VALUE - digit) / 10) {
+                                        isValidPid = false
+                                        break
+                                    }
+                                    pid = pid * 10 + digit
+                                } else {
+                                    isValidPid = false
+                                }
+                                i++
+                            }
+                        } else {
+                            while (i <= end && line[i] > ' ') {
+                                i++
+                            }
+                        }
+                        col++
+                    } else {
+                        while (i <= end && line[i] <= ' ') {
+                            i++
+                        }
                     }
+                }
+
+                if (col >= 9 && isValidPid) {
+                    var nameStart = end
+                    while (nameStart >= start && line[nameStart] > ' ') {
+                        nameStart--
+                    }
+                    val name = line.substring(nameStart + 1, end + 1)
+                    processes.add(ProcessInfo(pid, name, name, null, true))
                 }
 
                 while (i < len && trimmedLine[i] <= ' ') i++

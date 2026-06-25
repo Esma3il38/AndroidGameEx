@@ -7,6 +7,7 @@ import java.io.DataOutputStream
 import java.io.InputStreamReader
 
 object RootUtils {
+    // [LEGACY/UNUSED] private val WHITESPACE_REGEX = "\\s+".toRegex()
 
     fun requestRoot(): Boolean {
         var process: Process? = null
@@ -78,37 +79,49 @@ object RootUtils {
 
         var line = reader.readLine()
         while (line != null) {
-            val len = line.length
-            if (len == 0) {
+            val trimmedLine = line.trim()
+            if (trimmedLine.isEmpty()) {
                 line = reader.readLine()
                 continue
             }
 
-            var i = 0
-            while (i < len && line[i] == ' ') i++
-
-            var colIndex = 0
+            var colCount = 0
             var pidStart = -1
             var pidEnd = -1
-            var nameStart = -1
+            var lastColStart = -1
+            var i = 0
+            val len = trimmedLine.length
+            var inSpace = false
 
             while (i < len) {
-                if (colIndex == 1) pidStart = i
-                nameStart = i
-
-                while (i < len && line[i] != ' ') i++
-
-                if (colIndex == 1) pidEnd = i
-
-                while (i < len && line[i] == ' ') i++
-                colIndex++
+                if (trimmedLine[i] <= ' ') {
+                    if (!inSpace) {
+                        if (colCount == 2) {
+                            pidEnd = i
+                        }
+                        inSpace = true
+                    }
+                } else {
+                    if (inSpace || i == 0) {
+                        colCount++
+                        if (colCount == 2) {
+                            pidStart = i
+                        }
+                        lastColStart = i
+                        inSpace = false
+                    }
+                }
+                i++
+            }
+            if (!inSpace && colCount == 2) {
+                pidEnd = len
             }
 
-            if (pidStart != -1 && pidEnd != -1 && nameStart != -1 && colIndex >= 8) {
+            if (colCount >= 9 && pidStart != -1 && pidEnd != -1) {
                 try {
-                    val pidStr = line.substring(pidStart, pidEnd)
+                    val pidStr = trimmedLine.substring(pidStart, pidEnd)
                     val pid = pidStr.toInt()
-                    val name = line.substring(nameStart).trimEnd()
+                    val name = trimmedLine.substring(lastColStart)
                     processes.add(ProcessInfo(pid, name, name, null, true))
                 } catch (e: NumberFormatException) {
                     // Ignore header or lines that don't match expected format

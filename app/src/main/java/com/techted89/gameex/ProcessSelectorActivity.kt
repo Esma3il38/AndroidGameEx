@@ -39,6 +39,12 @@ class ProcessSelectorActivity : AppCompatActivity() {
         // Handle result if needed
     }
 
+    private val overlayPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        // Handle result if needed
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_process_selector)

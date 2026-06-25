@@ -100,49 +100,12 @@ object RootUtils {
         var line = reader.readLine()
         while (line != null) {
             // Typical ps output: USER PID ... NAME
-            // [LEGACY/UNUSED]
-            // val parts = line.trim().split(WHITESPACE_REGEX)
-            // if (parts.size >= 9) {
-            //     val pidStr = parts[1]
-            //     val name = parts.last()
-            //     try {
-            //         val pid = pidStr.toInt()
-            //         processes.add(ProcessInfo(pid, name, name, null, true))
-            //     } catch (e: NumberFormatException) {
-            //     }
-            // }
-
-            var wordCount = 0
-            var inWord = false
-            var pidStart = -1
-            var pidEnd = -1
-            var lastWordStart = -1
-            var lastWordEnd = -1
-
-            for (i in line.indices) {
-                val c = line[i]
-                val isSpace = c <= ' '
-
-                if (!isSpace && !inWord) {
-                    inWord = true
-                    wordCount++
-                    if (wordCount == 2) {
-                        pidStart = i
-                    }
-                    lastWordStart = i
-                } else if (isSpace && inWord) {
-                    inWord = false
-                    if (wordCount == 2) {
-                        pidEnd = i
-                    }
-                    lastWordEnd = i
-                }
-            }
-            if (inWord) {
-                lastWordEnd = line.length
-            }
-
-            if (wordCount >= 9) {
+            val parts = line.trim().split(WHITESPACE_REGEX)
+            if (parts.size >= 8) { // Relaxed check from 9 to 8
+                // Assuming standard android ps output where PID is usually 2nd column
+                // and Name is last column.
+                val pidStr = parts[1]
+                val name = parts.last()
                 try {
                     val pidStr = line.substring(pidStart, pidEnd)
                     val name = line.substring(lastWordStart, lastWordEnd).trimEnd()

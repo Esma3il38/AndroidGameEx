@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
@@ -58,12 +59,18 @@ class FloatingOverlayService : Service() {
         createNotificationChannel()
 
         // Ensure we run as Foreground to prevent killing
-        startForeground(1, NotificationCompat.Builder(this, "overlay_channel")
+        val notification = NotificationCompat.Builder(this, "overlay_channel")
             .setContentTitle("Memory Editor Active")
             .setContentText("Attached to $targetAppName (PID: $targetPid)")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build())
+            .build()
+
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(1, notification)
+        }
 
         return START_NOT_STICKY
     }
@@ -319,20 +326,27 @@ class FloatingOverlayService : Service() {
         fun executeFuzzyFilter(mode: Int) {
             progressScan.visibility = View.VISIBLE
             serviceScope.launch(Dispatchers.IO) {
-                val count = NativeScanner.filterFuzzy(targetPid, mode)
-                val addresses = NativeScanner.getResults(100)
+                try {
+                    val count = NativeScanner.filterFuzzy(targetPid, mode)
+                    val addresses = NativeScanner.getResults(100)
 
-                withContext(Dispatchers.Main) {
-                    progressScan.visibility = View.GONE
-                    Toast.makeText(this@FloatingOverlayService, "Found: $count", Toast.LENGTH_SHORT).show()
+                    withContext(Dispatchers.Main) {
+                        progressScan.visibility = View.GONE
+                        Toast.makeText(this@FloatingOverlayService, "Found: $count", Toast.LENGTH_SHORT).show()
 
-                    val results = addresses.map { addr ->
-                        val bytes = NativeScanner.readMemory(targetPid, addr, 4) // Default 4 bytes
-                        val hexVal = bytes.joinToString("") { "%02X".format(it) }
-                        MemoryResult(addr, "$hexVal (Fuzzy)")
+                        val results = addresses.map { addr ->
+                            val bytes = NativeScanner.readMemory(targetPid, addr, 4) // Default 4 bytes
+                            val hexVal = bytes.joinToString("") { "%02X".format(it) }
+                            MemoryResult(addr, "$hexVal (Fuzzy)")
+                        }
+                        adapter.updateData(results)
+                        switchTab("RESULTS")
                     }
-                    adapter.updateData(results)
-                    switchTab("RESULTS")
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        progressScan.visibility = View.GONE
+                        Toast.makeText(this@FloatingOverlayService, "Fuzzy filter error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         }
@@ -347,12 +361,19 @@ class FloatingOverlayService : Service() {
                 // Start Fuzzy Scan
                 progressScan.visibility = View.VISIBLE
                 serviceScope.launch(Dispatchers.IO) {
-                    NativeScanner.startFuzzyScan(targetPid)
-                    withContext(Dispatchers.Main) {
-                        progressScan.visibility = View.GONE
-                        Toast.makeText(this@FloatingOverlayService, "Fuzzy Scan Started. Change value in game.", Toast.LENGTH_SHORT).show()
-                        btnScan.visibility = View.GONE
-                        layoutFuzzyControls.visibility = View.VISIBLE
+                    try {
+                        NativeScanner.startFuzzyScan(targetPid)
+                        withContext(Dispatchers.Main) {
+                            progressScan.visibility = View.GONE
+                            Toast.makeText(this@FloatingOverlayService, "Fuzzy Scan Started. Change value in game.", Toast.LENGTH_SHORT).show()
+                            btnScan.visibility = View.GONE
+                            layoutFuzzyControls.visibility = View.VISIBLE
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            progressScan.visibility = View.GONE
+                            Toast.makeText(this@FloatingOverlayService, "Fuzzy scan error: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
                 return

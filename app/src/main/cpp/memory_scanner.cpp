@@ -18,6 +18,7 @@
 #include <sys/wait.h>
 #include <sys/mman.h>
 #include <errno.h>
+#include <stdio.h> // for fdopen
 
 // Forward Declaration for JNI compatibility to resolve circular dependency
 extern "C" JNIEXPORT jint JNICALL Java_com_techted89_gameex_NativeScanner_searchMemoryString(JNIEnv* env, jobject thiz, jint pid, jstring queryString);
@@ -79,10 +80,13 @@ enum FuzzyMode {
 struct SearchCondition {
     SearchType type = EXACT;
     DataType dataType = TYPE_DWORD;
-    // Store as doubles to accommodate all types (except large QWORDs which might lose precision, but sufficient for now)
-    // Alternatively, use a union, but parsing logic is simpler with double for now.
-    double value1 = 0;
-    double value2 = 0; // For range
+    // Store both representations to avoid union aliasing issues with TYPE_AUTO
+    double d_val1 = 0;
+    uint64_t i_val1 = 0;
+
+    double d_val2 = 0;
+    uint64_t i_val2 = 0; // For range
+
     int xorKey = 0; // For encrypted
 };
 
@@ -90,14 +94,25 @@ struct SearchCondition {
 SearchCondition parseSearchQuery(const std::string& query, DataType forcedType) {
     SearchCondition cond;
     cond.dataType = forcedType;
+    bool isFloat = (forcedType == TYPE_FLOAT || forcedType == TYPE_DOUBLE);
+    bool isAuto = (forcedType == TYPE_AUTO);
 
     // Check for Range (~)
     size_t tildePos = query.find('~');
     if (tildePos != std::string::npos) {
         cond.type = RANGE;
         try {
-            cond.value1 = std::stod(query.substr(0, tildePos));
-            cond.value2 = std::stod(query.substr(tildePos + 1));
+            std::string s1 = query.substr(0, tildePos);
+            std::string s2 = query.substr(tildePos + 1);
+
+            if (isFloat || isAuto) {
+                cond.d_val1 = std::stod(s1);
+                cond.d_val2 = std::stod(s2);
+            }
+            if (!isFloat) { // Int or Auto
+                cond.i_val1 = std::stoull(s1);
+                cond.i_val2 = std::stoull(s2);
+            }
         } catch (...) { cond.type = EXACT; }
         return cond;
     }
@@ -107,7 +122,12 @@ SearchCondition parseSearchQuery(const std::string& query, DataType forcedType) 
     if (xPos != std::string::npos) {
         cond.type = ENCRYPTED_XOR;
         try {
-            cond.value1 = std::stod(query.substr(0, xPos));
+            std::string s1 = query.substr(0, xPos);
+            if (isFloat) {
+                cond.d_val1 = std::stod(s1);
+            } else {
+                cond.i_val1 = std::stoull(s1);
+            }
             cond.xorKey = std::stoi(query.substr(xPos + 1));
         } catch (...) { cond.type = EXACT; }
         return cond;
@@ -116,26 +136,61 @@ SearchCondition parseSearchQuery(const std::string& query, DataType forcedType) 
     // Default Exact
     cond.type = EXACT;
     try {
-        cond.value1 = std::stod(query);
-    } catch (...) { cond.value1 = 0; }
+        if (isFloat || isAuto) {
+            cond.d_val1 = std::stod(query);
+        }
+        if (!isFloat) { // Int or Auto
+             cond.i_val1 = std::stoull(query);
+        }
+    } catch (...) {
+        if (isFloat) cond.d_val1 = 0.0;
+        else cond.i_val1 = 0;
+    }
     return cond;
 }
 
 /**
  * @brief Collects readable and writable memory regions for a given process.
+ * Revised to use su + cat /proc/[pid]/maps via pipe/fork
  */
 std::vector<MemoryRegion> getMemoryRegions(int pid) {
     std::vector<MemoryRegion> regions;
-    std::string mapsPath = "/proc/" + std::to_string(pid) + "/maps";
-    std::ifstream mapsFile(mapsPath);
-
-    if (!mapsFile.is_open()) {
-        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Failed to open maps: %s", mapsPath.c_str());
+    int pipefd[2];
+    if (pipe(pipefd) == -1) {
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Pipe failed: %s", strerror(errno));
         return regions;
     }
 
-    std::string line;
-    while (std::getline(mapsFile, line)) {
+    pid_t child = fork();
+    if (child == -1) {
+        __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Fork failed: %s", strerror(errno));
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return regions;
+    }
+
+    if (child == 0) {
+        // Child process
+        close(pipefd[0]); // Close read end
+        dup2(pipefd[1], STDOUT_FILENO); // Redirect stdout to pipe
+        close(pipefd[1]);
+
+        std::string cmd = "cat /proc/" + std::to_string(pid) + "/maps";
+        execlp("su", "su", "-c", cmd.c_str(), NULL);
+        _exit(127); // Use _exit to avoid flushing parent buffers
+    }
+
+    // Parent process
+    close(pipefd[1]); // Close write end
+    FILE* fp = fdopen(pipefd[0], "r");
+    if (!fp) {
+        close(pipefd[0]);
+        waitpid(child, nullptr, 0);
+        return regions;
+    }
+
+    char line[1024];
+    while (fgets(line, sizeof(line), fp)) {
         MemoryRegion region;
         char permissions[5];
         char dev[10];
@@ -143,13 +198,13 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
         char path[256] = {0};
         int pos = 0;
 
-        int parsed = sscanf(line.c_str(), "%" SCNxPTR "-%" SCNxPTR " %4s %*s %9s %ld%n",
+        int parsed = sscanf(line, "%" SCNxPTR "-%" SCNxPTR " %4s %*s %9s %ld%n",
                &region.startAddress, &region.endAddress, permissions, dev, &inode, &pos);
 
         if (parsed < 5) continue;
 
-        if (pos > 0 && (size_t)pos < line.length()) {
-            const char* p = line.c_str() + pos;
+        if (pos > 0 && (size_t)pos < strlen(line)) {
+            const char* p = line + pos;
             while (*p == ' ' || *p == '\t') p++;
             strncpy(path, p, sizeof(path) - 1);
             path[sizeof(path) - 1] = '\0';
@@ -177,6 +232,8 @@ std::vector<MemoryRegion> getMemoryRegions(int pid) {
              }
         }
     }
+    fclose(fp);
+    waitpid(child, nullptr, 0);
     return regions;
 }
 
@@ -239,18 +296,22 @@ bool ptraceRead(int pid, uintptr_t addr, void* dest, size_t size) {
 // Template function to check value match
 template <typename T>
 bool checkValue(T val, const SearchCondition& cond) {
+    bool isFloat = std::is_floating_point<T>::value;
     switch (cond.type) {
         case EXACT:
-            // For floats, use epsilon comparison? For now, strict equality
-            if (std::is_floating_point<T>::value)
-                return std::abs(val - (T)cond.value1) < 0.0001;
-            return val == (T)cond.value1;
+            if (isFloat)
+                return std::abs(val - (T)cond.d_val1) < 0.0001;
+            else
+                return val == (T)cond.i_val1;
         case RANGE:
-            return val >= (T)cond.value1 && val <= (T)cond.value2;
+            if (isFloat)
+                return val >= (T)cond.d_val1 && val <= (T)cond.d_val2;
+            else
+                return val >= (T)cond.i_val1 && val <= (T)cond.i_val2;
         case ENCRYPTED_XOR:
             // Only valid for integral types
             if (std::is_integral<T>::value)
-                 return ((long long)val ^ cond.xorKey) == (long long)cond.value1;
+                 return ((long long)val ^ cond.xorKey) == (long long)cond.i_val1;
             return false;
         default:
             return false;
@@ -675,6 +736,7 @@ Java_com_techted89_gameex_NativeScanner_installHook(
         jlong replacementAddress) {
     if (targetAddress == 0 || replacementAddress == 0) return JNI_FALSE;
 
+#ifdef __aarch64__
     uint32_t trampolineCode[] = {
         0x58000050, // LDR X16, #8
         0xD61F0200  // BR X16
@@ -718,6 +780,10 @@ Java_com_techted89_gameex_NativeScanner_installHook(
     bool success = ptraceWrite(pid, (uintptr_t)targetAddress, trampoline.data(), 16);
     ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
     return success ? JNI_TRUE : JNI_FALSE;
+#else
+    __android_log_print(ANDROID_LOG_ERROR, "NativeScanner", "Hooks only supported on ARM64");
+    return JNI_FALSE;
+#endif
 }
 
 extern "C"
@@ -844,7 +910,19 @@ Java_com_techted89_gameex_NativeScanner_readMemory(
     struct iovec local = {buffer.data(), (size_t)size};
     struct iovec remote = {(void*)(uintptr_t)address, (size_t)size};
     ssize_t bytes = process_vm_readv(pid, &local, 1, &remote, 1, 0);
-    if (bytes == -1) return env->NewByteArray(0);
+
+    // Fallback if process_vm_readv fails
+    if (bytes == -1 || bytes == 0) {
+        if (ptrace(PTRACE_ATTACH, pid, nullptr, nullptr) != -1) {
+            waitpid(pid, nullptr, 0);
+            if (ptraceRead(pid, (uintptr_t)address, buffer.data(), size)) {
+                bytes = size; // Assuming we read everything
+            }
+            ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
+        }
+    }
+
+    if (bytes <= 0) return env->NewByteArray(0);
     jbyteArray result = env->NewByteArray(bytes);
     env->SetByteArrayRegion(result, 0, bytes, (jbyte*)buffer.data());
     return result;

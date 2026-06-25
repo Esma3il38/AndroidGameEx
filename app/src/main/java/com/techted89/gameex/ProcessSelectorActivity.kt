@@ -45,6 +45,12 @@ class ProcessSelectorActivity : AppCompatActivity() {
         // Handle result if needed
     }
 
+    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (!Settings.canDrawOverlays(this)) {
+            // Optional: Handle the case where the user didn't grant the permission
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_process_selector)

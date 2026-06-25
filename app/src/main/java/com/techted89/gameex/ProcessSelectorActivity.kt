@@ -30,128 +30,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 
 class ProcessSelectorActivity : AppCompatActivity() {
 
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        // Handle result if needed
-    }
-
-    private var allProcesses: List<ProcessInfo> = emptyList()
-    private val activityScope = CoroutineScope(Dispatchers.Main + Job())
-
     private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { _ ->
-        if (!Settings.canDrawOverlays(this)) {
-            // Permission not granted, handle accordingly (e.g., finish or show warning)
-        }
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        // We handle the result manually by checking Settings.canDrawOverlays again later if needed
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        // Handle result if needed
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
     ) {
         if (!Settings.canDrawOverlays(this)) {
-            // Permission still not granted
+            Toast.makeText(this, "Overlay permission is required", Toast.LENGTH_SHORT).show()
         }
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        // We can optionally verify the result here, but returning to the app
-        // is enough to proceed or we check again.
-    }
-
-    private val activityScope = CoroutineScope(Dispatchers.Main + Job())
-
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (!Settings.canDrawOverlays(this)) {
-            // Permission still not granted
-        }
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        // Permission result handled here, for now just continue
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        if (!Settings.canDrawOverlays(this)) {
-            // Handle case where user did not grant permission
-        }
-    }
-
-
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        // Optional: Handle result if needed
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (!Settings.canDrawOverlays(this)) {
-            // Permission not granted, might want to show a toast or message
-        }
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        // Handle result if needed
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { _ ->
-        // Handle result if needed
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        // Handle result if needed
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        // Handle result if needed
-    }
-
-    private val overlayPermissionLauncher: ActivityResultLauncher<Intent> =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-            if (!Settings.canDrawOverlays(this)) {
-                // Permission not granted, could show a toast or message
-            }
-        }
-
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        // We can optionally check if permission was granted here,
-        // but typically checking again before use is preferred.
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        // Result handled if needed, for overlay permissions checking Settings.canDrawOverlays again is usually enough
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        // We check canDrawOverlays directly instead of result code as the result code is unreliable for this action.
-        if (Settings.canDrawOverlays(this)) {
-            // Permission granted, optionally reload or proceed
-        }
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        // Handle result if needed
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -219,8 +103,6 @@ class ProcessSelectorActivity : AppCompatActivity() {
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
-            // [LEGACY/UNUSED]
-            // startActivityForResult(intent, 0)
             overlayPermissionLauncher.launch(intent)
         }
     }

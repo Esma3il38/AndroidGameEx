@@ -78,51 +78,70 @@ object RootUtils {
 
         var line = reader.readLine()
         while (line != null) {
-            val trimmedLine = line.trim()
-            if (trimmedLine.isNotEmpty()) {
-                var pidStr = ""
-                var name = ""
-                var wordCount = 0
-                var inWord = false
-                var wordStart = 0
+            /* [LEGACY/UNUSED]
+            // Typical ps output: USER PID ... NAME
+            val parts = line.trim().split(WHITESPACE_REGEX)
+            if (parts.size >= 9) {
+                // Assuming standard android ps output where PID is usually 2nd column
+                // and Name is last column.
+                val pidStr = parts[1]
+                val name = parts.last()
+                try {
+                    val pid = pidStr.toInt()
+                    // Default values for raw parsing
+                    processes.add(ProcessInfo(pid, name, name, null, true))
+                } catch (e: NumberFormatException) {
+                    // Ignore header or lines that don't match expected format
+                }
+            }
+            */
 
-                for (i in 0 until trimmedLine.length) {
-                    val c = trimmedLine[i]
-                    val isSpace = c.isWhitespace()
+            // Fast manual character-by-character parsing
+            var length = line.length
+            var i = 0
+            while (i < length && line[i] <= ' ') i++ // trimStart
+            while (length > i && line[length - 1] <= ' ') length-- // trimEnd
+
+            if (i < length) {
+                var colCount = 0
+                var pidStr = ""
+                var nameStr = ""
+                var inWord = false
+                var wordStart = i
+
+                while (i < length) {
+                    val c = line[i]
+                    val isSpace = c <= ' '
 
                     if (!isSpace && !inWord) {
                         inWord = true
                         wordStart = i
                     } else if (isSpace && inWord) {
                         inWord = false
-                        wordCount++
-                        if (wordCount == 2) {
-                            pidStr = trimmedLine.substring(wordStart, i)
+                        val word = line.substring(wordStart, i)
+                        if (colCount == 1) {
+                            pidStr = word
                         }
+                        nameStr = word // the last word processed becomes the name
+                        colCount++
                     }
+                    i++
                 }
 
                 if (inWord) {
-                    wordCount++
-                    name = trimmedLine.substring(wordStart, trimmedLine.length)
+                    nameStr = line.substring(wordStart, length)
+                    colCount++
                 }
 
-                if (wordCount >= 9) {
+                if (colCount >= 9) {
                     try {
                         val pid = pidStr.toInt()
-                        processes.add(ProcessInfo(pid, name, name, null, true))
+                        processes.add(ProcessInfo(pid, nameStr, nameStr, null, true))
                     } catch (e: NumberFormatException) {
-                        // Ignore header or lines that don't match expected format
+                        // Ignore headers
                     }
                 }
             }
-
-            if (pid != -1 && i < len) {
-                // The remaining part is the name
-                val name = line.substring(startIndex).trimEnd()
-                processes.add(ProcessInfo(pid, name, name, null, true))
-            }
-
             line = reader.readLine()
         }
 

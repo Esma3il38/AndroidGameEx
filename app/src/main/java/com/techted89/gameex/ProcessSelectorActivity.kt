@@ -52,6 +52,10 @@ class ProcessSelectorActivity : AppCompatActivity() {
         // We handle the result manually by checking Settings.canDrawOverlays again later if needed
     }
 
+    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        // Handle result if needed
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             if (!Settings.canDrawOverlays(this)) {

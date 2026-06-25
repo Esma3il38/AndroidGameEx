@@ -35,6 +35,8 @@ class ProcessSelectorActivity : AppCompatActivity() {
         // the floating overlay won't work anyway when launched later.
     }
 
+    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
+
     override fun onCreate(savedInstanceState: Bundle?) {
         overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             if (!Settings.canDrawOverlays(this)) {

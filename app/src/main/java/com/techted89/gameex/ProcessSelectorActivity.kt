@@ -20,7 +20,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import kotlinx.coroutines.Dispatchers
-import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.activity.result.contract.ActivityResultContracts
@@ -28,29 +29,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 class ProcessSelectorActivity : AppCompatActivity() {
 
     private var allProcesses: List<ProcessInfo> = emptyList()
-    private lateinit var overlayPermissionLauncher: ActivityResultLauncher<Intent>
-
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        // We could check if permission was granted here, but if they denied it,
-        // the floating overlay won't work anyway when launched later.
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
+    private val activityScope = CoroutineScope(Dispatchers.Main + Job())
 
     private val overlayPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
-        // Handle result if needed. For now, we just let it return.
-        // We could re-check Settings.canDrawOverlays(this) here.
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (!Settings.canDrawOverlays(this)) {
-            // Permission not granted, could show a message
-        }
-    }
-
-    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         // Handle result if needed
     }
 
@@ -111,13 +94,12 @@ class ProcessSelectorActivity : AppCompatActivity() {
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
-            // [LEGACY/UNUSED] startActivityForResult(intent, 0)
             overlayPermissionLauncher.launch(intent)
         }
     }
 
     private fun loadProcesses(recycler: RecyclerView) {
-        lifecycleScope.launch(Dispatchers.IO) {
+        activityScope.launch(Dispatchers.IO) {
             // Need root to see all processes ideally, but basic ps might work for now
             // Or requesting root first
             RootUtils.requestRoot()
@@ -129,6 +111,11 @@ class ProcessSelectorActivity : AppCompatActivity() {
                 filterProcesses(recycler)
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        activityScope.cancel()
     }
 
     private fun filterProcesses(recycler: RecyclerView) {

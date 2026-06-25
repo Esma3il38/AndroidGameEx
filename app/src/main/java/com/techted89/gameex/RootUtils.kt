@@ -31,21 +31,49 @@ object RootUtils {
         val processes = mutableListOf<ProcessInfo>()
         var line: String? = reader.readLine()
         while (line != null) {
-            // Typical ps output: USER PID ... NAME
-            val parts = line.trim().split(WHITESPACE_REGEX)
-            if (parts.size >= 9) {
-                // Assuming standard android ps output where PID is usually 2nd column
-                // and Name is last column.
-                val pidStr = parts[1]
-                val name = parts.last()
-                try {
-                    val pid = pidStr.toInt()
-                    // Default values for raw parsing
-                    processes.add(ProcessInfo(pid, name, name, null, true))
-                } catch (e: NumberFormatException) {
-                    // Ignore header or lines that don't match expected format
+            // [LEGACY/UNUSED]
+            // val parts = line.trim().split(WHITESPACE_REGEX)
+            // if (parts.size >= 9) {
+            //     val pidStr = parts[1]
+            //     val name = parts.last()
+            //     try {
+            //         val pid = pidStr.toInt()
+            //         processes.add(ProcessInfo(pid, name, name, null, true))
+            //     } catch (e: NumberFormatException) {
+            //     }
+            // }
+
+            val len = line.length
+            var i = 0
+            while (i < len && line[i] <= ' ') i++
+
+            var wordCount = 0
+            var pid = -1
+            var lastWordStart = -1
+
+            while (i < len) {
+                val wordStart = i
+                lastWordStart = wordStart
+                while (i < len && line[i] > ' ') i++
+                val wordEnd = i
+                wordCount++
+
+                if (wordCount == 2) {
+                    try {
+                        pid = line.substring(wordStart, wordEnd).toInt()
+                    } catch (e: NumberFormatException) {
+                        pid = -1
+                    }
                 }
+
+                while (i < len && line[i] <= ' ') i++
             }
+
+            if (wordCount >= 9 && pid != -1) {
+                val name = line.substring(lastWordStart, len).trimEnd()
+                processes.add(ProcessInfo(pid, name, name, null, true))
+            }
+
             line = reader.readLine()
         }
         return processes

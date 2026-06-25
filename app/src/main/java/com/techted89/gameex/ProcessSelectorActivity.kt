@@ -20,14 +20,18 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.activity.result.contract.ActivityResultContracts
 
 class ProcessSelectorActivity : AppCompatActivity() {
 
     private var allProcesses: List<ProcessInfo> = emptyList()
 
-private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        // Handle result if needed. For now, we just request it.
-    }
+    private val overlayPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (!Settings.canDrawOverlays(this)) {
+            // Permission denied logic could go here
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -75,7 +79,9 @@ private val overlayPermissionLauncher = registerForActivityResult(ActivityResult
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
-overlayPermissionLauncher.launch(intent)
+            // [LEGACY/UNUSED]
+            // startActivityForResult(intent, 0)
+            overlayPermissionLauncher.launch(intent)
         }
     }
 

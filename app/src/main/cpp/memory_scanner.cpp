@@ -33,6 +33,7 @@ struct MemoryRegion {
     bool isExecutable;
 };
 
+// For fuzzy search snapshot
 struct SnapshotRegion {
     uintptr_t startAddress;
     std::vector<uint8_t> data;
@@ -42,7 +43,7 @@ struct SnapshotRegion {
 std::vector<jlong> searchResults;
 std::mutex searchResultsMutex;
 
-// Fuzzy Scan Snapshot Buffer
+// Global fuzzy snapshot storage
 std::vector<SnapshotRegion> fuzzySnapshots;
 std::mutex fuzzyMutex;
 
@@ -50,33 +51,6 @@ std::mutex fuzzyMutex;
 // Key: Target Address, Value: Original Bytes
 std::map<jlong, std::vector<uint8_t>> originalBytesMap;
 std::mutex originalBytesMutex;
-
-enum DataType {
-    TYPE_BYTE = 1,
-    TYPE_WORD = 2,
-    TYPE_DWORD = 3,
-    TYPE_XOR = 4,
-    TYPE_QWORD = 5,
-    TYPE_FLOAT = 6,
-    TYPE_DOUBLE = 7
-};
-
-// For fuzzy search snapshot
-struct SnapshotRegion {
-    uintptr_t startAddress;
-    std::vector<uint8_t> data;
-};
-
-// Global fuzzy snapshot storage
-std::vector<SnapshotRegion> fuzzySnapshots;
-std::mutex fuzzyMutex;
-
-enum SearchType {
-    EXACT,
-    RANGE,
-    FUZZY,
-    ENCRYPTED_XOR
-};
 
 enum DataType {
     TYPE_BYTE = 1,
@@ -89,6 +63,13 @@ enum DataType {
     TYPE_XOR = 128
 };
 
+enum SearchType {
+    EXACT,
+    RANGE,
+    FUZZY,
+    ENCRYPTED_XOR
+};
+
 enum FuzzyMode {
     FUZZY_CHANGED = 0,
     FUZZY_UNCHANGED = 1,
@@ -99,8 +80,6 @@ enum FuzzyMode {
 struct SearchCondition {
     SearchType type = EXACT;
     DataType dataType = TYPE_DWORD;
-    // Store as doubles to accommodate all types (except large QWORDs which might lose precision, but sufficient for now)
-    // Alternatively, use a union, but parsing logic is simpler with double for now.
     double value1 = 0;
     double value2 = 0; // For range
     int xorKey = 0; // For encrypted
@@ -244,50 +223,52 @@ std::vector<MemoryRegion> readProcMaps(int pid) {
         fclose(pipe);
         waitpid(childPid, nullptr, 0);
     } else {
+        // Fallback if su is not available or fails
         usedSu = false;
-    }
+        std::string mapsPath = "/proc/" + std::to_string(pid) + "/maps";
+        std::ifstream mapsFile(mapsPath);
+        if (mapsFile.is_open()) {
+            std::string line;
+            while (std::getline(mapsFile, line)) {
+                MemoryRegion region;
+                char permissions[5];
+                char dev[10];
+                long inode;
+                char path[256] = {0};
+                int pos = 0;
 
-    std::string line;
-    while (std::getline(mapsFile, line)) {
-        MemoryRegion region;
-        char permissions[5];
-        char dev[10];
-        long inode;
-        char path[256] = {0};
-        int pos = 0;
+                int parsed = sscanf(line.c_str(), "%" SCNxPTR "-%" SCNxPTR " %4s %*s %9s %ld%n",
+                       &region.startAddress, &region.endAddress, permissions, dev, &inode, &pos);
 
-        int parsed = sscanf(line.c_str(), "%" SCNxPTR "-%" SCNxPTR " %4s %*s %9s %ld%n",
-               &region.startAddress, &region.endAddress, permissions, dev, &inode, &pos);
+                if (parsed < 5) continue;
 
-        if (parsed < 5) continue;
+                if (pos > 0 && (size_t)pos < line.length()) {
+                    const char* p = line.c_str() + pos;
+                    while (*p == ' ' || *p == '\t') p++;
+                    strncpy(path, p, sizeof(path) - 1);
+                    path[sizeof(path) - 1] = '\0';
+                    size_t len = strlen(path);
+                    if (len > 0 && path[len-1] == '\n') path[len-1] = '\0';
+                } else {
+                    path[0] = '\0';
+                }
 
-        if (pos > 0 && (size_t)pos < line.length()) {
-            const char* p = line.c_str() + pos;
-            while (*p == ' ' || *p == '\t') p++;
-            strncpy(path, p, sizeof(path) - 1);
-            path[sizeof(path) - 1] = '\0';
-            size_t len = strlen(path);
-            if (len > 0 && path[len-1] == '\n') path[len-1] = '\0';
-        } else {
-            path[0] = '\0';
-        }
+                region.isReadable = (permissions[0] == 'r');
+                region.isWritable = (permissions[1] == 'w');
+                region.isExecutable = (permissions[2] == 'x');
 
-        region.isReadable = (permissions[0] == 'r');
-        region.isWritable = (permissions[1] == 'w');
-        region.isExecutable = (permissions[2] == 'x');
-
-        if (region.isReadable && region.isWritable) {
-             std::string pathStr(path);
-             // Basic filtering: skip generic system libraries and devices
-             // Allow [anon], [heap], [stack]
-             if (pathStr.find("/dev/") == std::string::npos &&
-                 pathStr.find(".so") == std::string::npos &&
-                 pathStr.find(".ttf") == std::string::npos &&
-                 pathStr.find(".apk") == std::string::npos &&
-                 pathStr.find(".dex") == std::string::npos &&
-                 pathStr.find(".jar") == std::string::npos) {
-                regions.push_back(region);
-             }
+                if (region.isReadable && region.isWritable) {
+                     std::string pathStr(path);
+                     if (pathStr.find("/dev/") == std::string::npos &&
+                         pathStr.find(".so") == std::string::npos &&
+                         pathStr.find(".ttf") == std::string::npos &&
+                         pathStr.find(".apk") == std::string::npos &&
+                         pathStr.find(".dex") == std::string::npos &&
+                         pathStr.find(".jar") == std::string::npos) {
+                        regions.push_back(region);
+                     }
+                }
+            }
         }
     }
 
@@ -373,7 +354,7 @@ bool checkValue(T val, const SearchCondition& cond) {
 
 // Core search implementation
 int performSearch(int pid, const SearchCondition& cond, std::vector<jlong>& results, bool append = false) {
-    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
+    std::vector<MemoryRegion> regions = readProcMaps(pid);
     const size_t CHUNK_SIZE = 4096;
     std::vector<uint8_t> buffer(CHUNK_SIZE);
     int matchCount = 0;
@@ -592,7 +573,7 @@ Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
         jobject,
         jint pid) {
 
-    std::vector<MemoryRegion> regions = getMemoryRegions(pid);
+    std::vector<MemoryRegion> regions = readProcMaps(pid);
     const size_t CHUNK_SIZE = 64 * 1024; // 64KB chunks for snapshots
     std::vector<uint8_t> buffer(CHUNK_SIZE);
 
@@ -629,106 +610,10 @@ Java_com_techted89_gameex_NativeScanner_startFuzzyScan(
     {
         std::lock_guard<std::mutex> lock(searchResultsMutex);
         searchResults.clear();
-        // Optimistically add ALL addresses? No, that's too many.
-        // We wait for the first filter step (CHANGED/UNCHANGED) to populate searchResults.
     }
 
     __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Fuzzy Scan Started. Snapshot size: %zu blocks", fuzzySnapshots.size());
 }
-
-extern "C"
-JNIEXPORT jint JNICALL
-Java_com_techted89_gameex_NativeScanner_filterFuzzy(
-        JNIEnv* env,
-        jobject,
-        jint pid,
-        jint mode) {
-
-    std::lock_guard<std::mutex> fuzzyLock(fuzzyMutex);
-    std::lock_guard<std::mutex> resultsLock(searchResultsMutex);
-
-    std::vector<jlong> newResults;
-    const size_t ALIGNMENT = 4; // Assume DWORD/Float alignment for fuzzy scan default
-
-    // If searchResults is empty, we scan the entire snapshot (First Filter Step)
-    bool firstFilter = searchResults.empty();
-
-    if (firstFilter) {
-        for (const auto& snap : fuzzySnapshots) {
-            size_t size = snap.data.size();
-            std::vector<uint8_t> currentMem(size);
-            struct iovec local = {currentMem.data(), size};
-            struct iovec remote = {(void*)snap.startAddress, size};
-
-            ssize_t bytes = process_vm_readv(pid, &local, 1, &remote, 1, 0);
-            if (bytes != (ssize_t)size) continue;
-
-            for (size_t i = 0; i + 4 <= size; i += ALIGNMENT) {
-                int oldVal, newVal;
-                memcpy(&oldVal, &snap.data[i], 4);
-                memcpy(&newVal, &currentMem[i], 4);
-
-                bool match = false;
-                switch (mode) {
-                    case FUZZY_CHANGED: match = (oldVal != newVal); break;
-                    case FUZZY_UNCHANGED: match = (oldVal == newVal); break;
-                    case FUZZY_INCREASED: match = (newVal > oldVal); break;
-                    case FUZZY_DECREASED: match = (newVal < oldVal); break;
-                }
-
-                if (match) {
-                    newResults.push_back((jlong)(snap.startAddress + i));
-                    if (newResults.size() >= 100000) goto finish_fuzzy;
-                }
-            }
-        }
-    } else {
-        // Refine existing results
-        for (jlong addr : searchResults) {
-            // Find corresponding snapshot block
-            // Simple linear search or intelligent lookup.
-            // Given sorted snapshots, we can binary search.
-            auto it = std::lower_bound(fuzzySnapshots.begin(), fuzzySnapshots.end(), addr,
-                [](const SnapshotRegion& region, jlong address) {
-                    return region.startAddress + region.data.size() <= (uintptr_t)address;
-                });
-
-            if (it != fuzzySnapshots.end() && addr >= (jlong)it->startAddress && addr < (jlong)(it->startAddress + it->data.size())) {
-                size_t offset = addr - it->startAddress;
-                int oldVal;
-                memcpy(&oldVal, &it->data[offset], 4);
-
-                int newVal;
-                struct iovec local = {&newVal, 4};
-                struct iovec remote = {(void*)addr, 4};
-                if (process_vm_readv(pid, &local, 1, &remote, 1, 0) == 4) {
-                    bool match = false;
-                    switch (mode) {
-                        case FUZZY_CHANGED: match = (oldVal != newVal); break;
-                        case FUZZY_UNCHANGED: match = (oldVal == newVal); break;
-                        case FUZZY_INCREASED: match = (newVal > oldVal); break;
-                        case FUZZY_DECREASED: match = (newVal < oldVal); break;
-                    }
-                    if (match) newResults.push_back(addr);
-                }
-            }
-        }
-    }
-
-finish_fuzzy:
-    searchResults = std::move(newResults);
-
-    // Update snapshots for NEXT comparison?
-    // Usually fuzzy search compares against "Last Scan".
-    // So we should update fuzzySnapshots with current values for the kept addresses.
-    // However, updating entire blocks is heavy.
-    // GameGuardian strategy: "Changed since last scan" vs "Changed since start".
-    // For simplicity here, we compare against INITIAL snapshot.
-    // To support "Changed since last", we would need to update the snapshot.
-
-    return (jint)searchResults.size();
-}
-
 
 // --- Keep Existing Hooks/Dump/Utils ---
 
@@ -895,8 +780,6 @@ Java_com_techted89_gameex_NativeScanner_enableStealthMode(JNIEnv*, jobject) {
     __android_log_print(ANDROID_LOG_INFO, "NativeScanner", "Stealth Mode: Activated");
 }
 
-// Java_com_techted89_gameex_NativeScanner_startFuzzyScan moved to top with implementation
-
 extern "C"
 JNIEXPORT jlongArray JNICALL
 Java_com_techted89_gameex_NativeScanner_getResults(JNIEnv* env, jobject, jint limit) {
@@ -936,15 +819,8 @@ Java_com_techted89_gameex_NativeScanner_getLoadedModules(JNIEnv* env, jobject, j
                 if (last != std::string::npos && last + 1 < line.length()) modules.insert(line.substr(last + 1));
             }
         }
-    };
-
-    if (pipe) {
-        readFromStream(pipe);
-        fclose(pipe);
-        waitpid(childPid, nullptr, 0);
-    } else {
-        usedSu = false;
     }
+
     jclass strClass = env->FindClass("java/lang/String");
     jobjectArray result = env->NewObjectArray(modules.size(), strClass, nullptr);
     int i = 0;
